@@ -45,7 +45,7 @@ for DIR in "${API_DIRS_SOURCES[@]}"; do
 done
 
 # Channels
-API_DIRS_CHANNELS=(kafka/channel/pkg natss/pkg)
+API_DIRS_CHANNELS=(kafka/channel/pkg natss/pkg azsb/pkg)
 
 for DIR in "${API_DIRS_CHANNELS[@]}"; do
   # generate the code with:
