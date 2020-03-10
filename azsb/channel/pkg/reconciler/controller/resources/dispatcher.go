@@ -58,19 +58,19 @@ func MakeDispatcher(args DispatcherArgs) *v1.Deployment {
 							}},
 							VolumeMounts: []corev1.VolumeMount{
 								{
-									Name:      "config-kafka",
-									MountPath: "/etc/config-kafka",
+									Name:      "config-azsb",
+									MountPath: "/etc/config-azsb",
 								},
 							},
 						},
 					},
 					Volumes: []corev1.Volume{
 						{
-							Name: "config-kafka",
+							Name: "config-azsb",
 							VolumeSource: corev1.VolumeSource{
 								ConfigMap: &corev1.ConfigMapVolumeSource{
 									LocalObjectReference: corev1.LocalObjectReference{
-										Name: "config-kafka",
+										Name: "config-azsb",
 									},
 								},
 							},
@@ -92,5 +92,8 @@ func makeEnv() []corev1.EnvVar {
 	}, {
 		Name:  "CONFIG_LOGGING_NAME",
 		Value: "config-logging",
+	}, {
+		Name:  "CONFIG_LEADERELECTION_NAME",
+		Value: "config-leader-election-azsb",
 	}}
 }
