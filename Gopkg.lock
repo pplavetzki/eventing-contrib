@@ -49,6 +49,63 @@
   version = "v0.1.1"
 
 [[projects]]
+  digest = "1:6530fc7461f14a825c6903d7611be9e180370a180ca94555c04690ffaf33bdd5"
+  name = "github.com/Azure/azure-amqp-common-go"
+  packages = [
+    ".",
+    "auth",
+    "cbs",
+    "conn",
+    "internal",
+    "internal/tracing",
+    "log",
+    "rpc",
+    "sas",
+    "uuid",
+  ]
+  pruneopts = "NUT"
+  revision = "b5ea4829bce0d96bc7b4d11bfc8ccd2afdf0ec4a"
+  version = "v1.1.4"
+
+[[projects]]
+  digest = "1:5d6422fddec1979bae9eff93c10328151ff5bd4c613ff247155eb332149a74ed"
+  name = "github.com/Azure/azure-service-bus-go"
+  packages = [
+    ".",
+    "atom",
+  ]
+  pruneopts = "NUT"
+  revision = "b2e3e7e97aa2aa7a7fd42fffc3d899c176c3c5ba"
+  version = "v0.7.0"
+
+[[projects]]
+  digest = "1:b29f903db076768824b6a82036fdd71f94c9637bdcd692762e8629932513daeb"
+  name = "github.com/Azure/go-amqp"
+  packages = [
+    ".",
+    "internal/testconn",
+  ]
+  pruneopts = "NUT"
+  revision = "4607cd6ce8cba6e725049bef605795e798a91302"
+  version = "v0.12.7"
+
+[[projects]]
+  digest = "1:6cf71e10997b268a5bee03bf10a07142767bde44820072be2015a49fbb528d98"
+  name = "github.com/Azure/go-autorest"
+  packages = [
+    "autorest",
+    "autorest/adal",
+    "autorest/azure",
+    "autorest/date",
+    "autorest/to",
+    "logger",
+    "tracing",
+  ]
+  pruneopts = "NUT"
+  revision = "2368760b211997f3c5dd61e85e8665a523a09247"
+  version = "v14.0.0"
+
+[[projects]]
   digest = "1:5d72bbcc9c8667b11c3dc3cbe681c5a6f71e5096744c0bf7726ab5c6425d5dc4"
   name = "github.com/BurntSushi/toml"
   packages = ["."]
@@ -183,6 +240,14 @@
   pruneopts = "NUT"
   revision = "8991bc29aa16c548c550c7ff78260e27b9ab7c73"
   version = "v1.1.1"
+
+[[projects]]
+  digest = "1:7a6852b35eb5bbc184561443762d225116ae630c26a7c4d90546619f1e7d2ad2"
+  name = "github.com/dgrijalva/jwt-go"
+  packages = ["."]
+  pruneopts = "NUT"
+  revision = "06ea1031745cb8b3dab3f6a236daf2b0aa468b7e"
+  version = "v3.2.0"
 
 [[projects]]
   digest = "1:08143362be979b087c2c1bae5dde986e988d3d5d4dc661727cbe436411b3f33a"
@@ -662,6 +727,14 @@
   version = "v1.0.1"
 
 [[projects]]
+  digest = "1:a45ae66dea4c899d79fceb116accfa1892105c251f0dcd9a217ddc276b42ec68"
+  name = "github.com/mitchellh/mapstructure"
+  packages = ["."]
+  pruneopts = "NUT"
+  revision = "3536a929edddb9a5b34bd6861dc4a9647cb459fe"
+  version = "v1.1.2"
+
+[[projects]]
   digest = "1:2f42fa12d6911c7b7659738758631bec870b7e9b4c6be5444f963cdcfccc191f"
   name = "github.com/modern-go/concurrent"
   packages = ["."]
@@ -742,6 +815,18 @@
   pruneopts = "NUT"
   revision = "4b96681fa6d28dd0ab5fe79bac63b3a493d9ee94"
   version = "v1.0.1"
+
+[[projects]]
+  digest = "1:6846140b3f116579680eefdc17145f2bcf064b68deb9febf86b4419a454049af"
+  name = "github.com/opentracing/opentracing-go"
+  packages = [
+    ".",
+    "ext",
+    "log",
+  ]
+  pruneopts = "NUT"
+  revision = "659c90643e714681897ec2521c60567dd21da733"
+  version = "v1.1.0"
 
 [[projects]]
   digest = "1:1a0de55901552615e2b2f24bdb51431634165e74745b042a3ec11c3e97ce5843"
@@ -1019,7 +1104,7 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:df0d218b9fa9056a1281701152498ce98e6508d12fcc9a3392bdb3c33bb6599d"
+  digest = "1:ee391658960984e835fd612993d0162814770265374a3990dfdbd0d2d728b160"
   name = "golang.org/x/net"
   packages = [
     "context",
@@ -1034,6 +1119,7 @@
     "proxy",
     "publicsuffix",
     "trace",
+    "websocket",
   ]
   pruneopts = "NUT"
   revision = "fe3aa8a4527195a6057b3fad46619d7d090e99b5"
@@ -2070,6 +2156,17 @@
   revision = "83fb33bf8fcfe5c0e021eb6c9bb8733a5b8423c0"
 
 [[projects]]
+  digest = "1:aba4e1624a6e1e301f50ea396b81bf6c51824c562dc2206ff5cc190110c8d217"
+  name = "pack.ag/amqp"
+  packages = [
+    ".",
+    "internal/testconn",
+  ]
+  pruneopts = "NUT"
+  revision = "86a6a1998f1d2bf63262718644c1ef3a77fa8d28"
+  version = "v0.12.5"
+
+[[projects]]
   digest = "1:fc6463b2db1240176327f3c259d3c7101e8340e2e8a6368fc39d69e9967bd8af"
   name = "sigs.k8s.io/controller-runtime"
   packages = [
@@ -2147,6 +2244,7 @@
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
+    "github.com/Azure/azure-service-bus-go",
     "github.com/Shopify/sarama",
     "github.com/apache/camel-k/pkg/apis/camel/v1",
     "github.com/apache/camel-k/pkg/apis/camel/v1/knative",
@@ -2250,7 +2348,10 @@
     "knative.dev/eventing/pkg/client/listers/eventing/v1alpha1",
     "knative.dev/eventing/pkg/kncloudevents",
     "knative.dev/eventing/pkg/kncloudevents/testing",
+    "knative.dev/eventing/pkg/legacyclient/clientset/versioned",
     "knative.dev/eventing/pkg/legacyclient/clientset/versioned/fake",
+    "knative.dev/eventing/pkg/legacyclient/clientset/versioned/scheme",
+    "knative.dev/eventing/pkg/legacyclient/injection/client",
     "knative.dev/eventing/pkg/legacyclient/injection/client/fake",
     "knative.dev/eventing/pkg/logconfig",
     "knative.dev/eventing/pkg/logging",

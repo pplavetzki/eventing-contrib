@@ -1,0 +1,359 @@
+package dispatcher
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	contribchannels "knative.dev/eventing-contrib/pkg/channel"
+	eventingduck "knative.dev/eventing/pkg/apis/duck/v1alpha1"
+	messagingv1alpha1 "knative.dev/eventing/pkg/apis/messaging/v1alpha1"
+	eventingchannels "knative.dev/eventing/pkg/channel"
+	"knative.dev/pkg/logging"
+
+	bus "github.com/Azure/azure-service-bus-go"
+
+	"go.uber.org/zap"
+)
+
+const (
+	// maxElements defines a maximum number of outstanding re-connect requests
+	maxElements = 10
+)
+
+// SubscriptionChannelMapping maps subcriptions to channels
+type SubscriptionChannelMapping map[eventingchannels.ChannelReference]map[subscriptionReference]*bus.Subscription
+
+// SubscriptionsSupervisor superviser for AZ Service Bus
+type SubscriptionsSupervisor struct {
+	hostToChannelMap atomic.Value
+	// hostToChannelMapLock is used to update hostToChannelMap
+	hostToChannelMapLock sync.Mutex
+
+	receiver   *contribchannels.MessageReceiver
+	dispatcher *contribchannels.MessageDispatcher
+
+	azsbMutex          sync.Mutex
+	connectionEndpoint string
+	subscriptions      SubscriptionChannelMapping
+	subscriptionLock   sync.Mutex
+	azNamespace        *bus.Namespace
+
+	logger *zap.Logger
+}
+
+// AZServicebusDispatcher dispatches
+type AZServicebusDispatcher interface {
+	Start(ctx context.Context) error
+	UpdateSubscriptions(ctx context.Context, channel *messagingv1alpha1.Channel, isFinalizer bool) (map[eventingduck.SubscriberSpec]error, error)
+	ProcessChannels(ctx context.Context, chanList []messagingv1alpha1.Channel) error
+}
+
+// NewDispatcher returns a new AZSbDispatcher.
+func NewDispatcher(connectionEndpoint string, logger *zap.Logger) (AZServicebusDispatcher, error) {
+	d := &SubscriptionsSupervisor{
+		logger:             logger,
+		dispatcher:         contribchannels.NewMessageDispatcher(logger.Sugar()),
+		connectionEndpoint: connectionEndpoint,
+		subscriptions:      make(SubscriptionChannelMapping),
+		azNamespace:        getNewSasInstance(connectionEndpoint),
+	}
+	d.setHostToChannelMap(map[string]eventingchannels.ChannelReference{})
+	receiver, err := contribchannels.NewMessageReceiver(
+		createReceiverFunction(d, logger.Sugar()),
+		logger.Sugar(),
+		contribchannels.ResolveChannelFromHostHeader(contribchannels.ResolveChannelFromHostFunc(d.getChannelReferenceFromHost)))
+	if err != nil {
+		return nil, err
+	}
+	d.receiver = receiver
+	return d, nil
+}
+
+func (s *SubscriptionsSupervisor) setHostToChannelMap(hcMap map[string]eventingchannels.ChannelReference) {
+	s.logger.Sugar().Infof("this is the hcMap: %v", hcMap)
+	for k, v := range hcMap {
+		s.logger.Sugar().Infof("key: %s, name: %s, namespace: %s", k, v.Name, v.Namespace)
+	}
+	s.hostToChannelMap.Store(hcMap)
+}
+
+// Start starts the dispatcher
+func (s *SubscriptionsSupervisor) Start(ctx context.Context) error {
+	s.logger.Info("Starting the Azure Service Bus Dispatcher")
+	return s.receiver.Start(ctx.Done())
+}
+
+func createReceiverFunction(s *SubscriptionsSupervisor, logger *zap.SugaredLogger) func(eventingchannels.ChannelReference, *contribchannels.Message) error {
+	logger.Info("inside the createReceiverFunction")
+	return func(channel eventingchannels.ChannelReference, m *contribchannels.Message) error {
+		logger.Infof("Received message from %q channel", channel.String())
+		_, err := json.Marshal(m)
+		if err != nil {
+			logger.Errorf("Error during marshaling of the message: %v", err)
+			return err
+		}
+		logger.Infof("Published [%s] : '%s'", channel.String(), m.Headers)
+		topic, err := s.azNamespace.NewTopic(channel.Name)
+		if err != nil {
+			logger.Errorf("Error creating the topic in the createReceiverFunction: %v", err)
+			return err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		topic.Close(ctx)
+		defer cancel()
+		err = topic.Send(ctx, toAZServicebusMessage(m))
+		if err != nil {
+			logger.Errorf("Error sending message to azure service bus topic %v", err)
+			return err
+		}
+		topic.Close(ctx)
+		return nil
+	}
+}
+
+func toAZServicebusMessage(msg *contribchannels.Message) *bus.Message {
+	azsbMessage := bus.Message{}
+	azsbMessage.Data = msg.Payload
+	azsbMessage.Label = msg.Headers["Ce-Source"]
+	azsbMessage.ID = msg.Headers["Ce-Id"]
+	azsbMessage.ContentType = msg.Headers["Content-Type"]
+	up := map[string]interface{}{
+		"Ce-Type":             msg.Headers["Ce-Type"],
+		"Ce-Specversion":      msg.Headers["Ce-Specversion"],
+		"ce-knativehistory":   msg.Headers["ce-knativehistory"],
+		"X-B3-Traceid":        msg.Headers["X-B3-Traceid"],
+		"Ce-Time":             msg.Headers["Ce-Time"],
+		"Ce-Knativebrokerttl": msg.Headers["Ce-Knativebrokerttl"],
+	}
+	azsbMessage.UserProperties = up
+	return &azsbMessage
+}
+
+// NewHostNameToChannelRefMap parses each channel from cList and creates a map[string(Status.Address.HostName)]ChannelReference
+func newHostNameToChannelRefMap(cList []messagingv1alpha1.Channel, logger *zap.SugaredLogger) (map[string]eventingchannels.ChannelReference, error) {
+	hostToChanMap := make(map[string]eventingchannels.ChannelReference, len(cList))
+	for _, c := range cList {
+		url := c.Status.Address.GetURL()
+		logger.Infof("this is the url in the newHostNameToChannelRefMap: %v", url)
+		if cr, present := hostToChanMap[url.Host]; present {
+			return nil, fmt.Errorf(
+				"duplicate hostName found. Each channel must have a unique host header. HostName:%s, channel:%s.%s, channel:%s.%s",
+				url.Host,
+				c.Namespace,
+				c.Name,
+				cr.Namespace,
+				cr.Name)
+		}
+		logger.Infof("this is the url Host: %s, the channel name: %s, and the namespace: %s", url.Host, c.Name, c.Namespace)
+		hostToChanMap[url.Host] = eventingchannels.ChannelReference{Name: c.Name, Namespace: c.Namespace}
+	}
+	return hostToChanMap, nil
+}
+
+// ProcessChannels will be called from the controller that watches az service bus channels.
+// It will update internal hostToChannelMap which is used to resolve the hostHeader of the
+// incoming request to the correct ChannelReference in the receiver function.
+func (s *SubscriptionsSupervisor) ProcessChannels(ctx context.Context, chanList []messagingv1alpha1.Channel) error {
+	hostToChanMap, err := newHostNameToChannelRefMap(chanList, s.logger.Sugar())
+	if err != nil {
+		logging.FromContext(ctx).Info("ProcessChannels: Error occurred when creating the new hostToChannel map.", zap.Error(err))
+		return err
+	}
+	s.setHostToChannelMap(hostToChanMap)
+	logging.FromContext(ctx).Info("hostToChannelMap updated successfully.")
+	return nil
+}
+
+func (s *SubscriptionsSupervisor) subscribe(ctx context.Context, channel eventingchannels.ChannelReference, subscription subscriptionReference) (*bus.Subscription, error) {
+	s.logger.Info("Subscribe to channel:", zap.Any("channel", channel), zap.Any("subscription", subscription))
+	messageHandler := func() bus.HandlerFunc {
+		return func(eventCtx context.Context, msg *bus.Message) error {
+			message := contribchannels.Message{}
+			s.logger.Sugar().Infof("received full message: %v, payload:", msg, string(msg.Data))
+			s.logger.Sugar().Infof("Azure Service Bus message received from label: %v; id: %v; timestamp: %v'", msg.Label, msg.ID, msg.ScheduleAt)
+			s.logger.Sugar().Infof("Azure Service Bus message subscription info Topic URL: %s, Reply URL: %s.", subscription.TopicURL, subscription.TopicURL)
+
+			message.Payload = msg.Data
+			message.Headers = make(map[string]string)
+			message.Headers["Ce-Id"] = msg.ID
+			message.Headers["Ce-Specversion"] = fmt.Sprint(msg.UserProperties["Ce-Specversion"])
+			message.Headers["Ce-Type"] = fmt.Sprint(msg.UserProperties["Ce-Type"])
+			message.Headers["Ce-Source"] = msg.Label
+			message.Headers["Content-Type"] = msg.ContentType
+			message.Headers["Ce-Knativebrokerttl"] = fmt.Sprint(msg.UserProperties["Ce-Knativebrokerttl"])
+			message.Headers["Ce-Time"] = fmt.Sprint(msg.UserProperties["Ce-Time"])
+			message.Headers["ce-knativehistory"] = fmt.Sprint(msg.UserProperties["ce-knativehistory"])
+
+			if err := s.dispatcher.DispatchMessage(&message, subscription.TopicURL, subscription.ReplyURL, contribchannels.DispatchDefaults{Namespace: channel.Namespace}); err != nil {
+				s.logger.Error("Failed to dispatch message: ", zap.Error(err))
+				return nil
+			}
+			if err := msg.Complete(ctx); err != nil {
+				s.logger.Error("Failed to acknowledge message: ", zap.Error(err))
+			}
+			return nil
+		}
+	}
+	s.logger.Info("created the message handler successfully")
+	t, err := s.azNamespace.NewTopic(channel.Name)
+	if err != nil {
+		s.logger.Error("Getting the Topic from Azure Service Bus failed: ", zap.Error(err))
+		return nil, err
+	}
+	sm := t.NewSubscriptionManager()
+	_, err = sm.Put(ctx, subscription.Name)
+	if err != nil {
+		s.logger.Error("Creating the subscription from Azure Service Bus failed: ", zap.Error(err))
+		return nil, err
+	}
+	sub, err := t.NewSubscription(subscription.Name)
+	if err != nil {
+		s.logger.Error("Failed to retrieve the newly created Azure Service Bus subscription: ", zap.Error(err))
+		return nil, err
+	}
+	s.logger.Info("after the context in subscribe")
+	go func() {
+		err = sub.Receive(ctx, messageHandler())
+		if err != nil {
+			log.Println(err)
+		}
+	}()
+	if err != nil {
+		s.logger.Error("Failed to set up the receive handler for the subscription: ", zap.Error(err))
+		return nil, err
+	}
+	s.logger.Sugar().Infof("Azure Service Bus Subscription created: %+v", sub.Name)
+
+	return sub, nil
+}
+
+// should be called only while holding subscriptionsMux
+func (s *SubscriptionsSupervisor) unsubscribe(ctx context.Context, channel eventingchannels.ChannelReference, subscription subscriptionReference) error {
+	s.logger.Info("Unsubscribe from channel:", zap.Any("channel", channel), zap.Any("subscription", subscription))
+
+	if azsbSub, ok := s.subscriptions[channel][subscription]; ok {
+		// Close Subscription
+		if err := azsbSub.Close(ctx); err != nil {
+			s.logger.Error("Closing Azure Service Bus Subscription failed: ", zap.Error(err))
+			return err
+		}
+		s.logger.Info("Unsubscribed from channel let's now try to delete it: ", zap.Any("channel", channel), zap.Any("subscription", subscription))
+		t, err := s.azNamespace.NewTopic(channel.Name)
+		if err != nil {
+			s.logger.Error("Getting the Topic from Azure Service Bus failed: ", zap.Error(err))
+			return err
+		}
+		sm := t.NewSubscriptionManager()
+		err = sm.Delete(ctx, subscription.Name)
+		if err != nil {
+			s.logger.Error("Deleting the subscription from Azure Service Bus failed: ", zap.Error(err))
+			return err
+		}
+		delete(s.subscriptions[channel], subscription)
+	}
+	return nil
+}
+
+// UpdateSubscriptions creates/deletes the natss subscriptions based on channel.Spec.Subscribable.Subscribers
+// Return type:map[eventingduck.SubscriberSpec]error --> Returns a map of subscriberSpec that failed with the value=error encountered.
+// Ignore the value in case error != nil
+func (s *SubscriptionsSupervisor) UpdateSubscriptions(ctx context.Context, channel *messagingv1alpha1.Channel, isFinalizer bool) (map[eventingduck.SubscriberSpec]error, error) {
+	s.subscriptionLock.Lock()
+	defer s.subscriptionLock.Unlock()
+
+	failedToSubscribe := make(map[eventingduck.SubscriberSpec]error)
+	cRef := eventingchannels.ChannelReference{Namespace: channel.Namespace, Name: channel.Name}
+	if channel.Spec.Subscribable == nil || isFinalizer {
+		s.logger.Sugar().Infof("Empty subscriptions for channel Ref: %v; unsubscribe all active subscriptions, if any", cRef)
+		chMap, ok := s.subscriptions[cRef]
+		if !ok {
+			// nothing to do
+			s.logger.Sugar().Infof("No channel Ref %v found in subscriptions map", cRef)
+			return failedToSubscribe, nil
+		}
+		for sub := range chMap {
+			s.logger.Sugar().Infof("Unsubscribing to channel Ref %v found in subscriptions map", cRef)
+			s.unsubscribe(ctx, cRef, sub)
+		}
+		delete(s.subscriptions, cRef)
+		return failedToSubscribe, nil
+	}
+
+	s.logger.Sugar().Infof("right before channel.Spec.Subscribable.Subscribers")
+	subscriptions := channel.Spec.Subscribable.Subscribers
+	activeSubs := make(map[subscriptionReference]bool) // it's logically a set
+	s.logger.Sugar().Infof("right after activeSubs")
+
+	chMap, ok := s.subscriptions[cRef]
+	if !ok {
+		chMap = make(map[subscriptionReference]*bus.Subscription)
+		s.subscriptions[cRef] = chMap
+	}
+	var errStrings []string
+	s.logger.Sugar().Infof("before subscription loops")
+	for _, sub := range subscriptions {
+		// check if the subscription already exist and do nothing in this case
+		subRef := newSubscriptionReference(sub)
+		subRef.Name = cRef.Name
+		subRef.Namespace = cRef.Namespace
+		s.logger.Sugar().Infof("subscription reference: %v", subRef)
+		if _, ok := chMap[subRef]; ok {
+			activeSubs[subRef] = true
+			s.logger.Sugar().Infof("Subscription: %v already active for channel: %v", sub, cRef)
+			continue
+		}
+		// subscribe and update failedSubscription if subscribe fails
+		s.logger.Sugar().Infof("trying subscribe to channel Ref %v found in subscriptions map", cRef)
+		azsub, err := s.subscribe(ctx, cRef, subRef)
+		if err != nil {
+			errStrings = append(errStrings, err.Error())
+			s.logger.Sugar().Errorf("failed to subscribe (subscription:%q) to channel: %v. Error:%s", sub, cRef, err.Error())
+			failedToSubscribe[sub] = err
+			continue
+		}
+		chMap[subRef] = azsub
+		activeSubs[subRef] = true
+	}
+	// Unsubscribe for deleted subscriptions
+	for sub := range chMap {
+		if ok := activeSubs[sub]; !ok {
+			s.unsubscribe(ctx, cRef, sub)
+		}
+	}
+	// delete the channel from s.subscriptions if chMap is empty
+	if len(s.subscriptions[cRef]) == 0 {
+		delete(s.subscriptions, cRef)
+	}
+	return failedToSubscribe, nil
+}
+
+func getSubject(channel eventingchannels.ChannelReference) string {
+	return channel.Name + "." + channel.Namespace
+}
+
+func (s *SubscriptionsSupervisor) getHostToChannelMap() map[string]eventingchannels.ChannelReference {
+	s.logger.Sugar().Infof("inside the getHostToChannelMap")
+	return s.hostToChannelMap.Load().(map[string]eventingchannels.ChannelReference)
+}
+
+func (s *SubscriptionsSupervisor) getChannelReferenceFromHost(host string) (eventingchannels.ChannelReference, error) {
+	s.logger.Sugar().Infof("inside the getChannelReferenceFromHost, looking for host: %s", host)
+	chMap := s.getHostToChannelMap()
+	cr, ok := chMap[host]
+	if !ok {
+		return cr, fmt.Errorf("Invalid HostName:%q. HostName not found in any of the watched az service bus channels", host)
+	}
+	return cr, nil
+}
+func getNewSasInstance(connection string, opts ...bus.NamespaceOption) *bus.Namespace {
+	ns, err := bus.NewNamespace(append(opts, bus.NamespaceWithConnectionString(connection))...)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return ns
+}
