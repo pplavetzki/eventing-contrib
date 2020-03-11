@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -200,23 +201,40 @@ func (s *SubscriptionsSupervisor) subscribe(ctx context.Context, channel eventin
 		}
 	}
 	s.logger.Info("created the message handler successfully")
+	subName := subscription.String()
+	s.logger.Info("here is the subcription name to create:", zap.Any("subscriptionName", subName))
+
 	t, err := s.azNamespace.NewTopic(channel.Name)
 	if err != nil {
 		s.logger.Error("Getting the Topic from Azure Service Bus failed: ", zap.Error(err))
 		return nil, err
 	}
+
+	var sub *bus.Subscription
 	sm := t.NewSubscriptionManager()
-	_, err = sm.Put(ctx, subscription.Name)
-	if err != nil {
-		s.logger.Error("Creating the subscription from Azure Service Bus failed: ", zap.Error(err))
+	_, err = sm.Get(ctx, subName)
+
+	if err != nil && strings.ContainsAny(err.Error(), "not found") {
+		s.logger.Sugar().Infof("did not find the subscription, so we're going to try and create it", subName)
+		_, err = sm.Put(ctx, subName)
+		if err != nil {
+			s.logger.Error("Creating the subscription from Azure Service Bus failed: ", zap.Error(err))
+			return nil, err
+		}
+		s.logger.Sugar().Infof("successfully created the subscription", subName)
+		// Try again to get the newly created subscription
+		sub, err = t.NewSubscription(subName)
+		if err != nil {
+			s.logger.Error("Failed to retrieve the newly created Azure Service Bus subscription: ", zap.Error(err))
+			return nil, err
+		}
+	} else if err != nil {
+		s.logger.Error("different error than not found:", zap.Error(err))
 		return nil, err
+	} else {
+		s.logger.Info("subscription already exists so just assigning creating the object")
+		sub, err = t.NewSubscription(subName)
 	}
-	sub, err := t.NewSubscription(subscription.Name)
-	if err != nil {
-		s.logger.Error("Failed to retrieve the newly created Azure Service Bus subscription: ", zap.Error(err))
-		return nil, err
-	}
-	s.logger.Info("after the context in subscribe")
 	go func() {
 		err = sub.Receive(ctx, messageHandler())
 		if err != nil {
@@ -259,7 +277,7 @@ func (s *SubscriptionsSupervisor) unsubscribe(ctx context.Context, channel event
 	return nil
 }
 
-// UpdateSubscriptions creates/deletes the natss subscriptions based on channel.Spec.Subscribable.Subscribers
+// UpdateSubscriptions creates/deletes the azsb subscriptions based on channel.Spec.Subscribable.Subscribers
 // Return type:map[eventingduck.SubscriberSpec]error --> Returns a map of subscriberSpec that failed with the value=error encountered.
 // Ignore the value in case error != nil
 func (s *SubscriptionsSupervisor) UpdateSubscriptions(ctx context.Context, channel *messagingv1alpha1.Channel, isFinalizer bool) (map[eventingduck.SubscriberSpec]error, error) {
