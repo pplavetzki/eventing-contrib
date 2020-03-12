@@ -25,7 +25,7 @@ CODEGEN_PKG=${CODEGEN_PKG:-$(cd ${REPO_ROOT_DIR}; ls -d -1 ./vendor/k8s.io/code-
 KNATIVE_CODEGEN_PKG=${KNATIVE_CODEGEN_PKG:-$(cd ${REPO_ROOT_DIR}; ls -d -1 ./vendor/knative.dev/pkg 2>/dev/null || echo ../pkg)}
 
 # Sources
-API_DIRS_SOURCES=(github/pkg camel/source/pkg kafka/source/pkg awssqs/pkg couchdb/source/pkg prometheus/pkg)
+API_DIRS_SOURCES=(github/pkg camel/source/pkg kafka/source/pkg awssqs/pkg couchdb/source/pkg prometheus/pkg azsb/source/pkg)
 
 for DIR in "${API_DIRS_SOURCES[@]}"; do
   # generate the code with:

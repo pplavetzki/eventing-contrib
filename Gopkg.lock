@@ -79,17 +79,6 @@
   version = "v0.7.0"
 
 [[projects]]
-  digest = "1:b29f903db076768824b6a82036fdd71f94c9637bdcd692762e8629932513daeb"
-  name = "github.com/Azure/go-amqp"
-  packages = [
-    ".",
-    "internal/testconn",
-  ]
-  pruneopts = "NUT"
-  revision = "4607cd6ce8cba6e725049bef605795e798a91302"
-  version = "v0.12.7"
-
-[[projects]]
   digest = "1:6cf71e10997b268a5bee03bf10a07142767bde44820072be2015a49fbb528d98"
   name = "github.com/Azure/go-autorest"
   packages = [
@@ -2380,6 +2369,7 @@
     "knative.dev/pkg/client/injection/kube/client/fake",
     "knative.dev/pkg/client/injection/kube/informers/apps/v1/deployment",
     "knative.dev/pkg/client/injection/kube/informers/core/v1/endpoints",
+    "knative.dev/pkg/client/injection/kube/informers/core/v1/secret",
     "knative.dev/pkg/client/injection/kube/informers/core/v1/service",
     "knative.dev/pkg/client/injection/kube/informers/core/v1/serviceaccount",
     "knative.dev/pkg/client/injection/kube/informers/rbac/v1/rolebinding",
