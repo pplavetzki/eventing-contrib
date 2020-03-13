@@ -387,6 +387,7 @@ func (r *Reconciler) makeEventTypes(src *v1alpha1.AzsbSource) ([]eventingv1alpha
 	return eventTypes, nil
 }
 
+// UpdateFromLoggingConfigMap update the logging config map
 func (r *Reconciler) UpdateFromLoggingConfigMap(cfg *corev1.ConfigMap) {
 	if cfg != nil {
 		delete(cfg.Data, "_example")
@@ -401,6 +402,7 @@ func (r *Reconciler) UpdateFromLoggingConfigMap(cfg *corev1.ConfigMap) {
 	logging.FromContext(r.loggingContext).Info("Update from logging ConfigMap", zap.Any("ConfigMap", cfg))
 }
 
+// UpdateFromMetricsConfigMap updating the metrics
 func (r *Reconciler) UpdateFromMetricsConfigMap(cfg *corev1.ConfigMap) {
 	if cfg != nil {
 		delete(cfg.Data, "_example")
