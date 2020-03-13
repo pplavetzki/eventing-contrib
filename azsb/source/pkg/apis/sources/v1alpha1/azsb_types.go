@@ -17,6 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"fmt"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -92,6 +94,11 @@ type AzsbSourceSpec struct {
 
 	// Resource limits and Request specifications of the Receive Adapter Deployment
 	Resources AzsbResourceSpec `json:"resources,omitempty"`
+}
+
+// AzsbEventSource returns the Kafka CloudEvent source.
+func AzsbEventSource(namespace, azsbSourceName, topic string) string {
+	return fmt.Sprintf("/apis/v1/namespaces/%s/azsbsources/%s#%s", namespace, azsbSourceName, topic)
 }
 
 // AzsbSourceStatus status for the source
