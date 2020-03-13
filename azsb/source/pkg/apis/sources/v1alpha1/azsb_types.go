@@ -69,6 +69,9 @@ const (
 	AzsbKeyTypeLabel = "azsbsources.sources.knative.dev/key-type"
 )
 
+// AzsbKeyTypeAllowed allowed key types
+var AzsbKeyTypeAllowed = []string{"string", "int", "float", "byte-array"}
+
 // AzsbSourceSpec AzsbSource spec
 type AzsbSourceSpec struct {
 	// Topic topics to consume messages from
