@@ -22,9 +22,6 @@ import (
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	clientset "knative.dev/eventing-contrib/azsb/channel/pkg/client/clientset/versioned"
 	azsbScheme "knative.dev/eventing-contrib/azsb/channel/pkg/client/clientset/versioned/scheme"
-	legacyclientset "knative.dev/eventing/pkg/legacyclient/clientset/versioned"
-	legacyScheme "knative.dev/eventing/pkg/legacyclient/clientset/versioned/scheme"
-	legacyclient "knative.dev/eventing/pkg/legacyclient/injection/client"
 	kubeclient "knative.dev/pkg/client/injection/kube/client"
 )
 
@@ -80,8 +77,7 @@ func (o Options) GetTrackerLease() time.Duration {
 
 // Base implements the core controller logic, given a Reconciler.
 type Base struct {
-	// LegacyClientSet allows us to configure Legacy Eventing objects
-	LegacyClientSet legacyclientset.Interface
+
 	// KubeClientSet allows us to talk to the k8s for core APIs
 	KubeClientSet kubernetes.Interface
 
@@ -149,7 +145,6 @@ func NewBase(ctx context.Context, controllerAgentName string, cmw configmap.Watc
 	base := &Base{
 		KubeClientSet:    kubeClient,
 		DynamicClientSet: dynamicclient.Get(ctx),
-		LegacyClientSet:  legacyclient.Get(ctx),
 		ConfigMapWatcher: cmw,
 		Recorder:         recorder,
 		StatsReporter:    statsReporter,
@@ -163,5 +158,4 @@ func init() {
 	// Add run types to the default Kubernetes Scheme so Events can be
 	// logged for run types.
 	_ = azsbScheme.AddToScheme(scheme.Scheme)
-	_ = legacyScheme.AddToScheme(scheme.Scheme)
 }
