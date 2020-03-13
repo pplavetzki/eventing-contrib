@@ -58,8 +58,8 @@ type AzsbLimitsSpec struct {
 
 // AzsbResourceSpec resource wrapper
 type AzsbResourceSpec struct {
-	Requests KafkaRequestsSpec `json:"requests,omitempty"`
-	Limits   KafkaLimitsSpec   `json:"limits,omitempty"`
+	Requests AzsbRequestsSpec `json:"requests,omitempty"`
+	Limits   AzsbLimitsSpec   `json:"limits,omitempty"`
 }
 
 const (
@@ -86,6 +86,9 @@ type AzsbSourceSpec struct {
 	// ServiceAccoutName is the name of the ServiceAccount that will be used to run the Receive
 	// Adapter Deployment.
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+
+	// Resource limits and Request specifications of the Receive Adapter Deployment
+	Resources AzsbResourceSpec `json:"resources,omitempty"`
 }
 
 // AzsbSourceStatus status for the source
