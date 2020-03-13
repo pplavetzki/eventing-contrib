@@ -44,6 +44,31 @@ type AzsbSource struct {
 var _ runtime.Object = (*AzsbSource)(nil)
 var _ kmeta.OwnerRefable = (*AzsbSource)(nil)
 
+// AzsbRequestsSpec requests for cpu/memory
+type AzsbRequestsSpec struct {
+	ResourceCPU    string `json:"cpu,omitempty"`
+	ResourceMemory string `json:"memory,omitempty"`
+}
+
+// AzsbLimitsSpec limits for cpu/memory
+type AzsbLimitsSpec struct {
+	ResourceCPU    string `json:"cpu,omitempty"`
+	ResourceMemory string `json:"memory,omitempty"`
+}
+
+// AzsbResourceSpec resource wrapper
+type AzsbResourceSpec struct {
+	Requests KafkaRequestsSpec `json:"requests,omitempty"`
+	Limits   KafkaLimitsSpec   `json:"limits,omitempty"`
+}
+
+const (
+	// AzsbEventType is the Azure Service Bus CloudEvent type.
+	AzsbEventType = "dev.knative.azsb.event"
+	// AzsbKeyTypeLabel label
+	AzsbKeyTypeLabel = "azsbsources.sources.knative.dev/key-type"
+)
+
 // AzsbSourceSpec AzsbSource spec
 type AzsbSourceSpec struct {
 	// Topic topics to consume messages from
@@ -57,6 +82,10 @@ type AzsbSourceSpec struct {
 	// Sink is a reference to an object that will resolve to a domain name to use as the sink.
 	// +optional
 	Sink *duckv1beta1.Destination `json:"sink,omitempty"`
+
+	// ServiceAccoutName is the name of the ServiceAccount that will be used to run the Receive
+	// Adapter Deployment.
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 }
 
 // AzsbSourceStatus status for the source
