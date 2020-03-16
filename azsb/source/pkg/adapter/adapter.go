@@ -176,6 +176,4 @@ func (a *Adapter) subscriber(ctx context.Context, subscription *azsbus.Subscript
 			return nil
 		}
 	}
-
-	return nil
 }
