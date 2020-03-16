@@ -39,12 +39,12 @@ spec:
   subresources:
     status: {}
   additionalPrinterColumns:
-    - name: Topics
+    - name: Topic
       type: string
-      JSONPath: ".spec.topics"
-    - name: BootstrapServers
+      JSONPath: ".spec.topic"
+    - name: Subscription
       type: string
-      JSONPath: ".spec.bootstrapServers"
+      JSONPath: ".spec.subscription"
     - name: Ready
       type: string
       JSONPath: ".status.conditions[?(@.type==\"Ready\")].status"
@@ -59,53 +59,17 @@ spec:
       properties:
         spec:
           properties:
-            bootstrapServers:
-              type: string
-              minLength: 1
-            topics:
-              type: string
-              minLength: 1
-            consumerGroup:
-              type: string
-              minLength: 1
-            net:
+            connectionString:
               properties:
-                sasl:
-                  properties:
-                    enable:
-                      type: boolean
-                    password:
-                      properties:
-                        secretKeyRef:
-                          type: object
-                      type: object
-                    user:
-                      properties:
-                        secretKeyRef:
-                          type: object
-                      type: object
-                  type: object
-                tls:
-                  properties:
-                    caCert:
-                      properties:
-                        secretKeyRef:
-                          type: object
-                      type: object
-                    cert:
-                      properties:
-                        secretKeyRef:
-                          type: object
-                      type: object
-                    enable:
-                      type: boolean
-                    key:
-                      properties:
-                        secretKeyRef:
-                          type: object
-                      type: object
+                secretKeyRef:
                   type: object
               type: object
+            topic:
+              type: string
+              minLength: 1
+            subscription:
+              type: string
+              minLength: 1
             resources:
               properties:
                 limits:
@@ -171,9 +135,9 @@ spec:
                     description: "the target URI. If ref is provided, this must be relative URI reference."
           type: object
           required:
-              - bootstrapServers
-              - topics
-              - consumerGroup
+              - connectionString
+              - topic
+              - subscription
         status:
           properties:
             conditions:

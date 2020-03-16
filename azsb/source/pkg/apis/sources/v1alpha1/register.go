@@ -28,7 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"knative.dev/eventing-contrib/azsb/source/pkg/apis/sources"
+	"knative.dev/eventing/pkg/apis/sources"
 )
 
 // SchemeGroupVersion is group version used to register these objects
@@ -48,7 +48,7 @@ var (
 	// SchemeBuilder builds schemes
 	SchemeBuilder = runtime.NewSchemeBuilder(addKnownTypes)
 	// AddToScheme add to scheme method
-	AddToScheme   = SchemeBuilder.AddToScheme
+	AddToScheme = SchemeBuilder.AddToScheme
 )
 
 // Adds the list of known types to Scheme.

@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -30,12 +29,25 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"knative.dev/eventing-contrib/azsb/source/pkg/apis/sources/v1alpha1"
 	"knative.dev/eventing-contrib/azsb/source/pkg/client/clientset/versioned"
-	"knative.dev/eventing-contrib/kafka/source/pkg/reconciler/resources"
+	"knative.dev/eventing-contrib/azsb/source/pkg/reconciler/resources"
 	"knative.dev/pkg/logging"
 	"knative.dev/pkg/metrics"
 	"knative.dev/pkg/resolver"
 
+	appsv1 "k8s.io/api/apps/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	appsv1listers "k8s.io/client-go/listers/apps/v1"
+
+	reconcilerazsbsource "knative.dev/eventing-contrib/azsb/source/pkg/client/injection/reconciler/sources/v1alpha1/azsbsource"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	corev1 "k8s.io/api/core/v1"
 	listers "knative.dev/eventing-contrib/azsb/source/pkg/client/listers/sources/v1alpha1"
+	eventingv1alpha1 "knative.dev/eventing/pkg/apis/eventing/v1alpha1"
+	eventingclientset "knative.dev/eventing/pkg/client/clientset/versioned"
+	eventinglisters "knative.dev/eventing/pkg/client/listers/eventing/v1alpha1"
+	pkgreconciler "knative.dev/pkg/reconciler"
 )
 
 const (
@@ -374,16 +386,15 @@ func (r *Reconciler) makeEventTypes(src *v1alpha1.AzsbSource) ([]eventingv1alpha
 	if ref := src.Spec.Sink.GetRef(); ref == nil || ref.Kind != "Broker" {
 		return eventTypes, nil
 	}
-	topics := strings.Split(src.Spec.Topics, ",")
-	for _, topic := range topics {
-		args := &resources.EventTypeArgs{
-			Src:    src,
-			Type:   v1alpha1.AzsbEventType,
-			Source: v1alpha1.AzsbEventSource(src.Namespace, src.Name, topic),
-		}
-		eventType := resources.MakeEventType(args)
-		eventTypes = append(eventTypes, eventType)
+
+	args := &resources.EventTypeArgs{
+		Src:    src,
+		Type:   v1alpha1.AzsbEventType,
+		Source: v1alpha1.AzsbEventSource(src.Namespace, src.Name, src.Spec.Topic),
 	}
+	eventType := resources.MakeEventType(args)
+	eventTypes = append(eventTypes, eventType)
+
 	return eventTypes, nil
 }
 

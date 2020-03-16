@@ -76,9 +76,13 @@ var AzsbKeyTypeAllowed = []string{"string", "int", "float", "byte-array"}
 
 // AzsbSourceSpec AzsbSource spec
 type AzsbSourceSpec struct {
-	// Topic topics to consume messages from
+	// Topic to consume messages from
 	// +required
-	Topics string `json:"topics"`
+	Topic string `json:"topic"`
+
+	// Subscription name of the subscription to the topic
+	// +required
+	Subscription string `json:"subscription"`
 
 	// ConnectionString credentials to connect to the topics
 	// +required

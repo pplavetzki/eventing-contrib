@@ -57,8 +57,8 @@ func NewController(
 		KubeClientSet:       kubeclient.Get(ctx),
 		EventingClientSet:   eventingclient.Get(ctx),
 		azsbClientSet:       azsbclient.Get(ctx),
-		azsbLister:          azsbinformer.Lister(),
-		deployLister:        deploymentInformer.Lister(),
+		azsbLister:          azsbInformer.Lister(),
+		deploymentLister:    deploymentInformer.Lister(),
 		receiveAdapterImage: raImage,
 		eventTypeLister:     eventTypeInformer.Lister(),
 		loggingContext:      ctx,
@@ -69,7 +69,7 @@ func NewController(
 
 	logging.FromContext(ctx).Info("Setting up azure service bus event handlers")
 
-	kafkaInformer.Informer().AddEventHandler(controller.HandleAll(impl.Enqueue))
+	azsbInformer.Informer().AddEventHandler(controller.HandleAll(impl.Enqueue))
 
 	deploymentInformer.Informer().AddEventHandler(cache.FilteringResourceEventHandler{
 		FilterFunc: controller.FilterGroupKind(v1alpha1.Kind("AzsbSource")),

@@ -17,8 +17,15 @@ limitations under the License.
 package resources
 
 import (
+	"fmt"
+
 	v1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"knative.dev/eventing-contrib/azsb/source/pkg/apis/sources/v1alpha1"
+	"knative.dev/eventing/pkg/utils"
+	"knative.dev/pkg/kmeta"
 )
 
 // ReceiveAdapterArgs args
@@ -37,12 +44,12 @@ func MakeReceiveAdapter(args *ReceiveAdapterArgs) *v1.Deployment {
 
 	env := []corev1.EnvVar{
 		{
-			Name: "AZSB_CONNECTION_STRING",
-			Value: args.Source.Spec.ConnectionString
+			Name:  "AZSB_TOPIC",
+			Value: args.Source.Spec.Topic,
 		},
 		{
-			Name: "AZSB_TOPICS",
-			Value: args.Source.Spec.Topics
+			Name:  "AZSB_SUBSCRIPTION",
+			Value: args.Source.Spec.Subscription,
 		},
 		{
 			Name:  "SINK_URI",
