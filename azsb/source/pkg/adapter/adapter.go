@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/cloudevents/sdk-go/pkg/cloudevents/client"
 	"go.uber.org/zap"
@@ -82,7 +83,6 @@ func NewAdapter(ctx context.Context, processed adapter.EnvConfigAccessor, ceClie
 func (a *Adapter) Start(stopCh <-chan struct{}) error {
 	a.logger.Info("Starting with config: ",
 		zap.String("Topics", a.config.Topic),
-		zap.String("ConnectionString", a.config.ConnectionString),
 		zap.String("SinkURI", a.config.SinkURI),
 		zap.String("Name", a.config.Name),
 		zap.String("Namespace", a.config.Namespace),
@@ -106,7 +106,7 @@ func (a *Adapter) Start(stopCh <-chan struct{}) error {
 	return a.subscriber(a.ctx, sub, stopCh)
 }
 
-func (a *Adapter) messageHandler() azsbus.HandlerFunc {
+func (a *Adapter) messageHandler(ctx context.Context) azsbus.HandlerFunc {
 	return func(eventCtx context.Context, msg *azsbus.Message) error {
 		var err error
 
@@ -120,10 +120,14 @@ func (a *Adapter) messageHandler() azsbus.HandlerFunc {
 				return fmt.Errorf("json is malformed") // Message is malformed, commit the offset so it won't be reprocessed
 			}
 
+			timestamp := time.Now().Unix()
+			sourceURL := sourcesv1alpha1.AzsbEventSource(a.config.Namespace, a.config.Name, a.config.Topic)
+			a.logger.Info("here is the source url", zap.String("sourceUrl", sourceURL))
 			event.SetID(msg.ID)
-			event.SetTime(*msg.SystemProperties.EnqueuedTime)
+			// event.SetTime(*msg.SystemProperties.EnqueuedTime)
+			event.SetTime(time.Unix(timestamp, 0))
 			event.SetType(sourcesv1alpha1.AzsbEventType)
-			event.SetSource(sourcesv1alpha1.AzsbEventSource(a.config.Namespace, a.config.Name, a.config.Topic))
+			event.SetSource(sourceURL)
 			event.SetSubject(msg.Label)
 			event.SetDataContentType(cloudevents.ApplicationJSON)
 
@@ -131,19 +135,25 @@ func (a *Adapter) messageHandler() azsbus.HandlerFunc {
 		}
 
 		if err != nil {
-			return err // Message is malformed, commit the offset so it won't be reprocessed
+			return msg.Abandon(ctx) // Message is malformed, commit the offset so it won't be reprocessed
 		}
 
 		// Check before writing log since event.String() allocates and uses a lot of time
-		if ce := a.logger.Check(zap.DebugLevel, "debugging"); ce != nil {
-			a.logger.Debug("Sending cloud event", zap.String("event", event.String()))
-		}
+		// if ce := a.logger.Check(zap.DebugLevel, "debugging"); ce != nil {
+		a.logger.Info("Sending cloud event", zap.String("event", event.String()))
+		// }
 
-		rctx, _, err := a.ceClient.Send(a.ctx, event)
+		rctx, resp, err := a.ceClient.Send(a.ctx, event)
 
 		if err != nil {
-			a.logger.Debug("Error while sending the message", zap.Error(err))
-			return err // Error while sending, don't commit offset
+			a.logger.Info(err.Error())
+			a.logger.Info("Error while sending the message", zap.Error(err))
+			if resp != nil {
+				for k, e := range resp.FieldErrors {
+					a.logger.Info("resp field error", zap.Any(k, e))
+				}
+			}
+			return msg.Abandon(ctx) // Error while sending, don't commit offset
 		}
 
 		reportArgs := &source.ReportArgs{
@@ -156,14 +166,14 @@ func (a *Adapter) messageHandler() azsbus.HandlerFunc {
 
 		_ = a.reporter.ReportEventCount(reportArgs, cloudevents.HTTPTransportContextFrom(rctx).StatusCode)
 
-		return nil
+		return msg.Complete(ctx)
 	}
 }
 
 func (a *Adapter) subscriber(ctx context.Context, subscription *azsbus.Subscription, stopCh <-chan struct{}) error {
 
 	go func() {
-		err := subscription.Receive(ctx, a.messageHandler())
+		err := subscription.Receive(ctx, a.messageHandler(ctx))
 		if err != nil {
 			a.logger.Error("failed to receive message.", zap.Error(err))
 		}

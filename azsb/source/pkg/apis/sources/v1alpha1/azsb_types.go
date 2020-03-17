@@ -100,9 +100,9 @@ type AzsbSourceSpec struct {
 	Resources AzsbResourceSpec `json:"resources,omitempty"`
 }
 
-// AzsbEventSource returns the Kafka CloudEvent source.
+// AzsbEventSource returns the Azure Service Bus CloudEvent source.
 func AzsbEventSource(namespace, azsbSourceName, topic string) string {
-	return fmt.Sprintf("/apis/v1/namespaces/%s/azsbsources/%s#%s", namespace, azsbSourceName, topic)
+	return fmt.Sprintf("/apis/v1/namespaces/%s/azsbsources/%s/%s", namespace, azsbSourceName, topic)
 }
 
 // AzsbSourceStatus status for the source
