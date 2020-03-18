@@ -22,14 +22,14 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cloudevents/sdk-go/pkg/cloudevents/client"
 	"go.uber.org/zap"
 	"knative.dev/eventing/pkg/adapter"
 	"knative.dev/pkg/logging"
 	"knative.dev/pkg/source"
 
 	azsbus "github.com/Azure/azure-service-bus-go"
-	cloudevents "github.com/cloudevents/sdk-go"
+	cloudevents "github.com/cloudevents/sdk-go/legacy"
+	ceClient "github.com/cloudevents/sdk-go/legacy/pkg/cloudevents/client"
 	sourcesv1alpha1 "knative.dev/eventing-contrib/azsb/source/pkg/apis/sources/v1alpha1"
 )
 
@@ -58,14 +58,14 @@ type messageSessionHandler struct {
 // Adapter struct
 type Adapter struct {
 	config   *adapterConfig
-	ceClient client.Client
+	ceClient ceClient.Client
 	reporter source.StatsReporter
 	logger   *zap.Logger
 	ctx      context.Context
 }
 
 // NewAdapter adapter struct
-func NewAdapter(ctx context.Context, processed adapter.EnvConfigAccessor, ceClient client.Client, reporter source.StatsReporter) adapter.Adapter {
+func NewAdapter(ctx context.Context, processed adapter.EnvConfigAccessor, ceClient ceClient.Client, reporter source.StatsReporter) adapter.Adapter {
 	logger := logging.FromContext(ctx).Desugar()
 	config := processed.(*adapterConfig)
 
