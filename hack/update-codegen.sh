@@ -25,7 +25,7 @@ CODEGEN_PKG=${CODEGEN_PKG:-$(cd ${REPO_ROOT_DIR}; ls -d -1 $(dirname $0)/../vend
 KNATIVE_CODEGEN_PKG=${KNATIVE_CODEGEN_PKG:-$(cd ${REPO_ROOT_DIR}; ls -d -1 $(dirname $0)/../vendor/knative.dev/pkg 2>/dev/null || echo ../pkg)}
 
 # Sources
-API_DIRS_SOURCES=(github/pkg gitlab/pkg camel/source/pkg kafka/source/pkg awssqs/pkg couchdb/source/pkg prometheus/pkg)
+API_DIRS_SOURCES=(azsb/source/pkg github/pkg gitlab/pkg camel/source/pkg kafka/source/pkg awssqs/pkg couchdb/source/pkg prometheus/pkg)
 
 for DIR in "${API_DIRS_SOURCES[@]}"; do
   # generate the code with:
@@ -45,7 +45,7 @@ for DIR in "${API_DIRS_SOURCES[@]}"; do
 done
 
 # Channels
-API_DIRS_CHANNELS=(kafka/channel/pkg natss/pkg)
+API_DIRS_CHANNELS=(kafka/channel/pkg natss/pkg azsb/channel/pkg)
 
 for DIR in "${API_DIRS_CHANNELS[@]}"; do
   # generate the code with:

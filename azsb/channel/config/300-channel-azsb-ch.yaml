@@ -1,0 +1,90 @@
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: azservicebuschannels.messaging.knative.dev
+  labels:
+    contrib.eventing.knative.dev/release: devel
+    knative.dev/crd-install: "true"
+    messaging.knative.dev/subscribable: "true"
+    duck.knative.dev/addressable: "true"
+spec:
+  group: messaging.knative.dev
+  version: v1alpha1
+  names:
+    kind: AZServicebusChannel
+    plural: azservicebuschannels
+    singular: azservicebuschannel
+    shortNames:
+    - azsbch
+    categories:
+    - all
+    - knative
+    - messaging
+    - channel
+  scope: Namespaced
+  subresources:
+    status: {}
+  additionalPrinterColumns:
+    - name: Ready
+      type: string
+      JSONPath: ".status.conditions[?(@.type==\"Ready\")].status"
+    - name: Reason
+      type: string
+      JSONPath: ".status.conditions[?(@.type==\"Ready\")].reason"
+    - name: URL
+      type: string
+      JSONPath: .status.address.url
+    - name: Age
+      type: date
+      JSONPath: .metadata.creationTimestamp
+  validation:
+    openAPIV3Schema:
+      properties:
+        spec:
+          properties:
+            enablePartitions:
+              type: boolean
+              description: "Enabled partitions of a Azure Service Bus topic."
+            maxTopicSize:
+              format: int16
+              type: integer
+              description: "Maximum size of a Azure Service Bus topic."
+            subscribable:
+              type: object
+              properties:
+                subscribers:
+                  type: array
+                  description: "The list of subscribers that have expressed interest in receiving events from this channel."
+                  items:
+                    required:
+                      - uid
+                    properties:
+                      ref:
+                        type: object
+                        required:
+                          - namespace
+                          - name
+                          - uid
+                        properties:
+                          apiVersion:
+                            type: string
+                          kind:
+                            type: string
+                          name:
+                            type: string
+                            minLength: 1
+                          namespace:
+                            type: string
+                            minLength: 1
+                          uid:
+                            type: string
+                            minLength: 1
+                      uid:
+                        type: string
+                        minLength: 1
+                      subscriberURI:
+                        type: string
+                        minLength: 1
+                      replyURI:
+                        type: string
+                        minLength: 1
