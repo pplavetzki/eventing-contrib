@@ -154,7 +154,7 @@ func (r *Reconciler) ReconcileKind(ctx context.Context, src *v1alpha1.AzsbSource
 		if found == false {
 			src.Status.MarkResourcesIncorrect("IncorrectAzsbKeyTypeLabel", "Invalid value for %s: %s. Allowed: %v", v1alpha1.AzsbKeyTypeLabel, val, v1alpha1.AzsbKeyTypeAllowed)
 			logging.FromContext(ctx).Errorf("Invalid value for %s: %s. Allowed: %v", v1alpha1.AzsbKeyTypeLabel, val, v1alpha1.AzsbKeyTypeAllowed)
-			return errors.New("IncorrectKafkaKeyTypeLabel")
+			return errors.New("IncorrectAzsbKeyTypeLabel")
 		}
 	}
 
@@ -206,7 +206,7 @@ func checkResourcesStatus(src *v1alpha1.AzsbSource) error {
 	return nil
 }
 
-func (r *Reconciler) createReceiveAdapter(ctx context.Context, src *v1alpha1.AzsbSource, sinkURI string) (*appsv1.Deployment, error) {
+func (r *Reconciler) createReceiveAdapter(ctx context.Context, src *v1alpha1.AzsbSource, sink string) (*appsv1.Deployment, error) {
 
 	if err := checkResourcesStatus(src); err != nil {
 		return nil, err
@@ -227,7 +227,7 @@ func (r *Reconciler) createReceiveAdapter(ctx context.Context, src *v1alpha1.Azs
 		Labels:        resources.GetLabels(src.Name),
 		LoggingConfig: loggingConfig,
 		MetricsConfig: metricsConfig,
-		SinkURI:       sinkURI,
+		Sink:          sink,
 	}
 	expected := resources.MakeReceiveAdapter(&raArgs)
 
@@ -356,7 +356,7 @@ func (r *Reconciler) computeDiff(current []eventingv1alpha1.EventType, expected 
 		}
 	}
 	// Need to check whether the current EventTypes are not in the expected map. If so, we have to delete them.
-	// This could happen if the KafkaSource CO changes its broker.
+	// This could happen if the AzsbSource CO changes its broker.
 	for _, c := range current {
 		if _, ok := expectedMap[keyFromEventType(&c)]; !ok {
 			toDelete = append(toDelete, c)

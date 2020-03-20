@@ -24,6 +24,7 @@ import (
 
 	"go.uber.org/zap"
 	"knative.dev/eventing/pkg/adapter"
+	"knative.dev/eventing/pkg/kncloudevents"
 	"knative.dev/pkg/logging"
 	"knative.dev/pkg/source"
 
@@ -51,17 +52,20 @@ func NewEnvConfig() adapter.EnvConfigAccessor {
 	return &adapterConfig{}
 }
 
-type messageSessionHandler struct {
-	MessageSession *azsbus.MessageSession
-}
+// SendFunc use this to send the created event
+type SendFunc func(context.Context, cloudevents.Event) (context.Context, *cloudevents.Event, error)
+
+// EventRespFunc use this to process the results of sending the Cloud Event
+type EventRespFunc func(context.Context, error, *azsbus.Message) error
 
 // Adapter struct
 type Adapter struct {
-	config   *adapterConfig
-	ceClient ceClient.Client
-	reporter source.StatsReporter
-	logger   *zap.Logger
-	ctx      context.Context
+	config        *adapterConfig
+	ceClient      ceClient.Client
+	EventResponse EventRespFunc
+	reporter      source.StatsReporter
+	logger        *zap.Logger
+	ctx           context.Context
 }
 
 // NewAdapter adapter struct
@@ -70,12 +74,24 @@ func NewAdapter(ctx context.Context, processed adapter.EnvConfigAccessor, ceClie
 	config := processed.(*adapterConfig)
 
 	return &Adapter{
-		ctx:      ctx,
-		config:   config,
-		ceClient: ceClient,
-		reporter: reporter,
-		logger:   logger,
+		ctx:           ctx,
+		config:        config,
+		ceClient:      ceClient,
+		EventResponse: eventHandler,
+		reporter:      reporter,
+		logger:        logger,
 	}
+}
+
+// Initialize cloudevent client
+func (a *Adapter) initClient() error {
+	if a.ceClient == nil {
+		var err error
+		if a.ceClient, err = kncloudevents.NewDefaultClient(a.config.EnvConfig.Sink); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Start starts the adapter process
@@ -105,66 +121,79 @@ func (a *Adapter) Start(stopCh <-chan struct{}) error {
 	return a.subscriber(a.ctx, sub, stopCh)
 }
 
-func (a *Adapter) messageHandler(ctx context.Context) azsbus.HandlerFunc {
-	return func(eventCtx context.Context, msg *azsbus.Message) error {
-		var err error
+// ProcessEvent converts the Azure Service Bus Message into a Cloud Event
+func (a *Adapter) ProcessEvent(ctx context.Context, msg *azsbus.Message) error {
+	var err error
 
-		event := cloudevents.NewEvent(cloudevents.VersionV03)
+	event := cloudevents.NewEvent(cloudevents.VersionV03)
 
-		if strings.Contains(msg.ContentType, "application/cloudevents+json") {
-			err = json.Unmarshal(msg.Data, &event)
-		} else {
-			// Check if payload is a valid json
-			if !json.Valid(msg.Data) {
-				return fmt.Errorf("json is malformed") // Message is malformed, commit the offset so it won't be reprocessed
-			}
-
-			sourceURL := sourcesv1alpha1.AzsbEventSource(a.config.Namespace, a.config.Name, a.config.Topic)
-			a.logger.Info("here is the source url", zap.String("sourceUrl", sourceURL))
-			event.SetID(msg.ID)
-			event.SetTime(*msg.SystemProperties.EnqueuedTime)
-			event.SetType(sourcesv1alpha1.AzsbEventType)
-			event.SetSource(sourceURL)
-			event.SetSubject(msg.Label)
-			event.SetDataContentType(cloudevents.ApplicationJSON)
-
-			err = event.SetData(msg.Data)
+	if strings.Contains(msg.ContentType, "application/cloudevents+json") {
+		err = json.Unmarshal(msg.Data, &event)
+	} else {
+		// Check if payload is a valid json
+		if !json.Valid(msg.Data) {
+			return fmt.Errorf("json is malformed") // Message is malformed, commit the offset so it won't be reprocessed
 		}
 
-		if err != nil {
-			return msg.Abandon(ctx) // Message is malformed, commit the offset so it won't be reprocessed
-		}
+		sourceURL := sourcesv1alpha1.AzsbEventSource(a.config.Namespace, a.config.Name, a.config.Topic)
+		a.logger.Debug("here is the source url", zap.String("sourceUrl", sourceURL))
 
-		// Check before writing log since event.String() allocates and uses a lot of time
-		if ce := a.logger.Check(zap.DebugLevel, "debugging"); ce != nil {
-			a.logger.Debug("Sending cloud event", zap.String("event", event.String()))
-		}
+		event.SetID(msg.ID)
+		event.SetTime(*msg.SystemProperties.EnqueuedTime)
+		event.SetType(sourcesv1alpha1.AzsbEventType)
+		event.SetSource(sourceURL)
+		event.SetSubject(msg.Label)
+		event.SetDataContentType(cloudevents.ApplicationJSON)
 
-		rctx, resp, err := a.ceClient.Send(a.ctx, event)
-
-		if err != nil {
-			a.logger.Info(err.Error())
-			a.logger.Info("Error while sending the message", zap.Error(err))
-			if resp != nil {
-				for k, e := range resp.FieldErrors {
-					a.logger.Info("resp field error", zap.Any(k, e))
-				}
-			}
-			return msg.Abandon(ctx) // Error while sending, don't commit offset
-		}
-
-		reportArgs := &source.ReportArgs{
-			Namespace:     a.config.Namespace,
-			EventSource:   event.Source(),
-			EventType:     event.Type(),
-			Name:          a.config.Name,
-			ResourceGroup: resourceGroup,
-		}
-
-		_ = a.reporter.ReportEventCount(reportArgs, cloudevents.HTTPTransportContextFrom(rctx).StatusCode)
-
-		return msg.Complete(ctx)
+		err = event.SetData(msg.Data)
 	}
+
+	if err != nil {
+		a.logger.Info(err.Error())
+		a.EventResponse(ctx, err, msg) // Message is malformed, commit the offset so it won't be reprocessed
+		return err
+	}
+
+	// Check before writing log since event.String() allocates and uses a lot of time
+	if ce := a.logger.Check(zap.DebugLevel, "debugging"); ce != nil {
+		a.logger.Debug("Sending cloud event", zap.String("event", event.String()))
+	}
+
+	rctx, resp, err := a.ceClient.Send(ctx, event)
+
+	if err != nil {
+		a.logger.Info(err.Error())
+		a.logger.Info("Error while sending the message", zap.Error(err))
+		if resp != nil {
+			for k, e := range resp.FieldErrors {
+				a.logger.Info("resp field error", zap.Any(k, e))
+			}
+		}
+		return a.EventResponse(ctx, err, msg)
+	}
+
+	reportArgs := &source.ReportArgs{
+		Namespace:     a.config.Namespace,
+		EventSource:   event.Source(),
+		EventType:     event.Type(),
+		Name:          a.config.Name,
+		ResourceGroup: resourceGroup,
+	}
+
+	_ = a.reporter.ReportEventCount(reportArgs, cloudevents.HTTPTransportContextFrom(rctx).StatusCode)
+
+	return a.EventResponse(ctx, nil, msg)
+}
+
+func eventHandler(ctx context.Context, respError error, msg *azsbus.Message) error {
+	if respError != nil {
+		return msg.Abandon(ctx) // Error while sending, don't commit offset
+	}
+	return msg.Complete(ctx)
+}
+
+func (a *Adapter) messageHandler(ctx context.Context) azsbus.HandlerFunc {
+	return a.ProcessEvent
 }
 
 func (a *Adapter) subscriber(ctx context.Context, subscription *azsbus.Subscription, stopCh <-chan struct{}) error {

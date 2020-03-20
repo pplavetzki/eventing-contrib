@@ -27,12 +27,14 @@ import (
 	"knative.dev/eventing-contrib/azsb/source/pkg/apis/sources/v1alpha1"
 )
 
+// EventTypeArgs params to send to the MakeEventType function
 type EventTypeArgs struct {
 	Src    *v1alpha1.AzsbSource
 	Type   string
 	Source string
 }
 
+// MakeEventType creates the eventing type
 func MakeEventType(args *EventTypeArgs) eventingv1alpha1.EventType {
 	return eventingv1alpha1.EventType{
 		ObjectMeta: metav1.ObjectMeta{
