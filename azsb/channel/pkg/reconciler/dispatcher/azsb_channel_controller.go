@@ -28,6 +28,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"knative.dev/eventing-contrib/azsb/channel/pkg/apis/messaging/v1alpha1"
 	"knative.dev/eventing-contrib/azsb/channel/pkg/dispatcher"
+	"knative.dev/eventing/pkg/kncloudevents"
 	"knative.dev/eventing/pkg/logging"
 	"knative.dev/eventing/pkg/reconciler"
 	"knative.dev/pkg/configmap"
@@ -92,9 +93,14 @@ func NewController(
 	logger := logging.FromContext(ctx)
 	base := reconciler.NewBase(ctx, controllerAgentName, cmw)
 
+	connArgs := kncloudevents.ConnectionArgs{
+		MaxIdleConns:        10,
+		MaxIdleConnsPerHost: 10,
+	}
+
 	// TODO: add the real connection endpoint here
 	connection := os.Getenv("SB_CONNECTION")
-	azsbDispatcher, err := dispatcher.NewDispatcher(connection, logger)
+	azsbDispatcher, err := dispatcher.NewDispatcher(connection, logger, &connArgs)
 	if err != nil {
 		logger.Fatal("Unable to create dispatcher", zap.Error(err))
 		return nil

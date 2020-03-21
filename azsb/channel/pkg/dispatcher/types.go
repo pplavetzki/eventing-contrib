@@ -3,6 +3,8 @@ package dispatcher
 import (
 	"fmt"
 
+	eventingchannels "knative.dev/eventing/pkg/channel"
+
 	eventingduck "knative.dev/eventing/pkg/apis/duck/v1alpha1"
 )
 
@@ -12,6 +14,7 @@ type subscriptionReference struct {
 	Name      string
 	TopicURL  string
 	ReplyURL  string
+	Delivery  eventingchannels.DeliveryOptions
 }
 
 func newSubscriptionReference(spec eventingduck.SubscriberSpec) subscriptionReference {

@@ -2,7 +2,6 @@ package dispatcher
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -10,20 +9,26 @@ import (
 	"sync/atomic"
 	"time"
 
-	contribchannels "knative.dev/eventing-contrib/pkg/channel"
 	eventingduck "knative.dev/eventing/pkg/apis/duck/v1alpha1"
 	messagingv1alpha1 "knative.dev/eventing/pkg/apis/messaging/v1alpha1"
 	eventingchannels "knative.dev/eventing/pkg/channel"
+	"knative.dev/eventing/pkg/kncloudevents"
 	"knative.dev/pkg/logging"
+	"knative.dev/pkg/tracing"
 
 	bus "github.com/Azure/azure-service-bus-go"
 
+	"github.com/cloudevents/sdk-go/v1/cloudevents"
+	cloudeventsclient "github.com/cloudevents/sdk-go/v1/cloudevents/client"
+	cloudeventstransport "github.com/cloudevents/sdk-go/v1/cloudevents/transport/http"
 	"go.uber.org/zap"
 )
 
 const (
 	// maxElements defines a maximum number of outstanding re-connect requests
 	maxElements = 10
+	// tracingSpanIgnoringPath defines the tracing path to ignore
+	tracingSpanIgnoringPath = "/readyz"
 )
 
 // SubscriptionChannelMapping maps subcriptions to channels
@@ -35,8 +40,9 @@ type SubscriptionsSupervisor struct {
 	// hostToChannelMapLock is used to update hostToChannelMap
 	hostToChannelMapLock sync.Mutex
 
-	receiver   *contribchannels.MessageReceiver
-	dispatcher *contribchannels.MessageDispatcher
+	receiver   *eventingchannels.EventReceiver
+	dispatcher *eventingchannels.EventDispatcher
+	ceClient   cloudeventsclient.Client
 
 	azsbMutex          sync.Mutex
 	connectionEndpoint string
@@ -55,19 +61,28 @@ type AZServicebusDispatcher interface {
 }
 
 // NewDispatcher returns a new AZSbDispatcher.
-func NewDispatcher(connectionEndpoint string, logger *zap.Logger) (AZServicebusDispatcher, error) {
+func NewDispatcher(connectionEndpoint string, logger *zap.Logger, args *kncloudevents.ConnectionArgs) (AZServicebusDispatcher, error) {
 	d := &SubscriptionsSupervisor{
 		logger:             logger,
-		dispatcher:         contribchannels.NewMessageDispatcher(logger.Sugar()),
+		dispatcher:         eventingchannels.NewEventDispatcher(logger),
 		connectionEndpoint: connectionEndpoint,
 		subscriptions:      make(SubscriptionChannelMapping),
 		azNamespace:        getNewSasInstance(connectionEndpoint),
 	}
+	httpTransport, err := cloudeventstransport.New(cloudeventstransport.WithStructuredEncoding(), cloudeventstransport.WithMiddleware(tracing.HTTPSpanIgnoringPaths(tracingSpanIgnoringPath)))
+	if err != nil {
+		logger.Fatal("failed to create httpTransport", zap.Error(err))
+	}
+	ceClient, err := kncloudevents.NewDefaultClientGivenHttpTransport(httpTransport, args)
+	if err != nil {
+		logger.Fatal("failed to create cloudevents client", zap.Error(err))
+	}
+	d.ceClient = ceClient
 	d.setHostToChannelMap(map[string]eventingchannels.ChannelReference{})
-	receiver, err := contribchannels.NewMessageReceiver(
+	receiver, err := eventingchannels.NewEventReceiver(
 		createReceiverFunction(d, logger.Sugar()),
-		logger.Sugar(),
-		contribchannels.ResolveChannelFromHostHeader(contribchannels.ResolveChannelFromHostFunc(d.getChannelReferenceFromHost)))
+		logger,
+		eventingchannels.ResolveChannelFromHostHeader(d.getChannelReferenceFromHost))
 	if err != nil {
 		return nil, err
 	}
@@ -86,19 +101,19 @@ func (s *SubscriptionsSupervisor) setHostToChannelMap(hcMap map[string]eventingc
 // Start starts the dispatcher
 func (s *SubscriptionsSupervisor) Start(ctx context.Context) error {
 	s.logger.Info("Starting the Azure Service Bus Dispatcher")
-	return s.receiver.Start(ctx.Done())
+	return s.ceClient.StartReceiver(ctx, s.receiver.ServeHTTP)
 }
 
-func createReceiverFunction(s *SubscriptionsSupervisor, logger *zap.SugaredLogger) func(eventingchannels.ChannelReference, *contribchannels.Message) error {
+func createReceiverFunction(s *SubscriptionsSupervisor, logger *zap.SugaredLogger) eventingchannels.ReceiverFunc {
 	logger.Info("inside the createReceiverFunction")
-	return func(channel eventingchannels.ChannelReference, m *contribchannels.Message) error {
+	return func(ctx context.Context, channel eventingchannels.ChannelReference, event cloudevents.Event) error {
 		logger.Infof("Received message from %q channel", channel.String())
-		_, err := json.Marshal(m)
+		m, err := event.MarshalJSON()
 		if err != nil {
 			logger.Errorf("Error during marshaling of the message: %v", err)
 			return err
 		}
-		logger.Infof("Published [%s] : '%s'", channel.String(), m.Headers)
+		logger.Debugf("cloud event received: %s", m)
 		topic, err := s.azNamespace.NewTopic(channel.Name)
 		if err != nil {
 			logger.Errorf("Error creating the topic in the createReceiverFunction: %v", err)
@@ -107,7 +122,7 @@ func createReceiverFunction(s *SubscriptionsSupervisor, logger *zap.SugaredLogge
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		topic.Close(ctx)
 		defer cancel()
-		err = topic.Send(ctx, toAZServicebusMessage(m))
+		err = topic.Send(ctx, toAZServicebusMessage(&event))
 		if err != nil {
 			logger.Errorf("Error sending message to azure service bus topic %v", err)
 			return err
@@ -117,19 +132,16 @@ func createReceiverFunction(s *SubscriptionsSupervisor, logger *zap.SugaredLogge
 	}
 }
 
-func toAZServicebusMessage(msg *contribchannels.Message) *bus.Message {
+func toAZServicebusMessage(event *cloudevents.Event) *bus.Message {
 	azsbMessage := bus.Message{}
-	azsbMessage.Data = msg.Payload
-	azsbMessage.Label = msg.Headers["Ce-Source"]
-	azsbMessage.ID = msg.Headers["Ce-Id"]
-	azsbMessage.ContentType = msg.Headers["Content-Type"]
+	azsbMessage.Data, _ = event.MarshalJSON()
+	azsbMessage.Label = event.Subject()
+	azsbMessage.ID = event.ID()
+	azsbMessage.ContentType = event.DataContentType()
 	up := map[string]interface{}{
-		"Ce-Type":             msg.Headers["Ce-Type"],
-		"Ce-Specversion":      msg.Headers["Ce-Specversion"],
-		"ce-knativehistory":   msg.Headers["ce-knativehistory"],
-		"X-B3-Traceid":        msg.Headers["X-B3-Traceid"],
-		"Ce-Time":             msg.Headers["Ce-Time"],
-		"Ce-Knativebrokerttl": msg.Headers["Ce-Knativebrokerttl"],
+		"Ce-Type":        event.Type(),
+		"Ce-Specversion": event.SpecVersion(),
+		"Ce-Time":        event.Time(),
 	}
 	azsbMessage.UserProperties = up
 	return &azsbMessage
@@ -174,23 +186,20 @@ func (s *SubscriptionsSupervisor) subscribe(ctx context.Context, channel eventin
 	s.logger.Info("Subscribe to channel:", zap.Any("channel", channel), zap.Any("subscription", subscription))
 	messageHandler := func() bus.HandlerFunc {
 		return func(eventCtx context.Context, msg *bus.Message) error {
-			message := contribchannels.Message{}
+			event := cloudevents.Event{}
+			err := event.UnmarshalJSON(msg.Data)
 			s.logger.Sugar().Infof("received full message: %v, payload:", msg, string(msg.Data))
 			s.logger.Sugar().Infof("Azure Service Bus message received from label: %v; id: %v; timestamp: %v'", msg.Label, msg.ID, msg.ScheduleAt)
 			s.logger.Sugar().Infof("Azure Service Bus message subscription info Topic URL: %s, Reply URL: %s.", subscription.TopicURL, subscription.TopicURL)
-
-			message.Payload = msg.Data
-			message.Headers = make(map[string]string)
-			message.Headers["Ce-Id"] = msg.ID
-			message.Headers["Ce-Specversion"] = fmt.Sprint(msg.UserProperties["Ce-Specversion"])
-			message.Headers["Ce-Type"] = fmt.Sprint(msg.UserProperties["Ce-Type"])
-			message.Headers["Ce-Source"] = msg.Label
-			message.Headers["Content-Type"] = msg.ContentType
-			message.Headers["Ce-Knativebrokerttl"] = fmt.Sprint(msg.UserProperties["Ce-Knativebrokerttl"])
-			message.Headers["Ce-Time"] = fmt.Sprint(msg.UserProperties["Ce-Time"])
-			message.Headers["ce-knativehistory"] = fmt.Sprint(msg.UserProperties["ce-knativehistory"])
-
-			if err := s.dispatcher.DispatchMessage(&message, subscription.TopicURL, subscription.ReplyURL, contribchannels.DispatchDefaults{Namespace: channel.Namespace}); err != nil {
+			if err != nil {
+				s.logger.Error(err.Error(), zap.Error(err))
+				return err
+			}
+			if err := event.Validate(); err != nil {
+				s.logger.Error(err.Error(), zap.Error(err))
+				return err
+			}
+			if err := s.dispatcher.DispatchEventWithDelivery(context.TODO(), event, subscription.TopicURL, subscription.ReplyURL, &subscription.Delivery); err != nil {
 				s.logger.Error("Failed to dispatch message: ", zap.Error(err))
 				return nil
 			}
