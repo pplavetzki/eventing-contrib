@@ -27,10 +27,11 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"knative.dev/eventing/pkg/adapter"
+	"knative.dev/eventing/pkg/kncloudevents"
 	"knative.dev/pkg/source"
 
 	azsbus "github.com/Azure/azure-service-bus-go"
-	cloudevents "github.com/cloudevents/sdk-go/legacy"
+	cloudevents "github.com/cloudevents/sdk-go/v2"
 )
 
 func MockEventSender(ctx context.Context, event cloudevents.Event) (context.Context, *cloudevents.Event, error) {
@@ -123,6 +124,11 @@ func TestPostMessage_ServeHTTP(t *testing.T) {
 			sinkServer := httptest.NewServer(h)
 			defer sinkServer.Close()
 
+			s, err := kncloudevents.NewHttpMessageSender(nil, sinkServer.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+
 			ac := &adapterConfig{
 				Topic:            "TestTopic",
 				Subcription:      "TestSubscription",
@@ -135,15 +141,12 @@ func TestPostMessage_ServeHTTP(t *testing.T) {
 				},
 			}
 			a := &Adapter{
-				config:        ac,
-				logger:        zap.NewNop(),
-				reporter:      statsReporter,
-				ctx:           context.TODO(),
-				EventResponse: MockEventResponse,
-			}
-
-			if err := a.initClient(); err != nil {
-				t.Errorf("failed to create cloudevent client, %v", err)
+				config:            ac,
+				logger:            zap.NewNop(),
+				reporter:          statsReporter,
+				ctx:               context.TODO(),
+				EventResponse:     MockEventResponse,
+				httpMessageSender: s,
 			}
 
 			err = a.ProcessEvent(context.TODO(), tc.msg)

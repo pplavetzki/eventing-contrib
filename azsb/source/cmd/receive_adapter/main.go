@@ -22,5 +22,5 @@ import (
 )
 
 func main() {
-	adapter.Main("azsbsource", azsbadapter.NewEnvConfig, azsbadapter.NewAdapter)
+	adapter.MainMessageAdapter("azsbsource", azsbadapter.NewEnvConfig, azsbadapter.NewAdapter)
 }

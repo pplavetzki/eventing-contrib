@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"go.uber.org/zap"
@@ -29,8 +30,9 @@ import (
 	"knative.dev/pkg/source"
 
 	azsbus "github.com/Azure/azure-service-bus-go"
-	cloudevents "github.com/cloudevents/sdk-go/legacy"
-	ceClient "github.com/cloudevents/sdk-go/legacy/pkg/cloudevents/client"
+	cloudevents "github.com/cloudevents/sdk-go/v2"
+	"github.com/cloudevents/sdk-go/v2/binding"
+	ceHTTP "github.com/cloudevents/sdk-go/v2/protocol/http"
 	sourcesv1alpha1 "knative.dev/eventing-contrib/azsb/source/pkg/apis/sources/v1alpha1"
 )
 
@@ -52,46 +54,34 @@ func NewEnvConfig() adapter.EnvConfigAccessor {
 	return &adapterConfig{}
 }
 
-// SendFunc use this to send the created event
-type SendFunc func(context.Context, cloudevents.Event) (context.Context, *cloudevents.Event, error)
+var transformerFactories = binding.TransformerFactories{}
 
 // EventRespFunc use this to process the results of sending the Cloud Event
 type EventRespFunc func(context.Context, error, *azsbus.Message) error
 
 // Adapter struct
 type Adapter struct {
-	config        *adapterConfig
-	ceClient      ceClient.Client
-	EventResponse EventRespFunc
-	reporter      source.StatsReporter
-	logger        *zap.Logger
-	ctx           context.Context
+	config            *adapterConfig
+	httpMessageSender *kncloudevents.HttpMessageSender
+	EventResponse     EventRespFunc
+	reporter          source.StatsReporter
+	logger            *zap.Logger
+	ctx               context.Context
 }
 
 // NewAdapter adapter struct
-func NewAdapter(ctx context.Context, processed adapter.EnvConfigAccessor, ceClient ceClient.Client, reporter source.StatsReporter) adapter.Adapter {
+func NewAdapter(ctx context.Context, processed adapter.EnvConfigAccessor, httpMessageSender *kncloudevents.HttpMessageSender, reporter source.StatsReporter) adapter.MessageAdapter {
 	logger := logging.FromContext(ctx).Desugar()
 	config := processed.(*adapterConfig)
 
 	return &Adapter{
-		ctx:           ctx,
-		config:        config,
-		ceClient:      ceClient,
-		EventResponse: eventHandler,
-		reporter:      reporter,
-		logger:        logger,
+		ctx:               ctx,
+		config:            config,
+		httpMessageSender: httpMessageSender,
+		EventResponse:     eventHandler,
+		reporter:          reporter,
+		logger:            logger,
 	}
-}
-
-// Initialize cloudevent client
-func (a *Adapter) initClient() error {
-	if a.ceClient == nil {
-		var err error
-		if a.ceClient, err = kncloudevents.NewDefaultClient(a.config.EnvConfig.Sink); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // Start starts the adapter process
@@ -123,9 +113,12 @@ func (a *Adapter) Start(stopCh <-chan struct{}) error {
 
 // ProcessEvent converts the Azure Service Bus Message into a Cloud Event
 func (a *Adapter) ProcessEvent(ctx context.Context, msg *azsbus.Message) error {
-	var err error
+	req, err := a.httpMessageSender.NewCloudEventRequest(ctx)
+	if err != nil {
+		return err
+	}
 
-	event := cloudevents.NewEvent(cloudevents.VersionV03)
+	event := cloudevents.NewEvent()
 
 	if strings.Contains(msg.ContentType, "application/cloudevents+json") {
 		err = json.Unmarshal(msg.Data, &event)
@@ -143,9 +136,13 @@ func (a *Adapter) ProcessEvent(ctx context.Context, msg *azsbus.Message) error {
 		event.SetType(sourcesv1alpha1.AzsbEventType)
 		event.SetSource(sourceURL)
 		event.SetSubject(msg.Label)
-		event.SetDataContentType(cloudevents.ApplicationJSON)
 
-		err = event.SetData(msg.Data)
+		ct := msg.ContentType
+		if ct == "" {
+			ct = cloudevents.ApplicationJSON
+		}
+
+		err = event.SetData(ct, msg.Data)
 	}
 
 	if err != nil {
@@ -159,17 +156,22 @@ func (a *Adapter) ProcessEvent(ctx context.Context, msg *azsbus.Message) error {
 		a.logger.Debug("Sending cloud event", zap.String("event", event.String()))
 	}
 
-	rctx, resp, err := a.ceClient.Send(ctx, event)
+	err = ceHTTP.WriteRequest(ctx, binding.ToMessage(&event), req, transformerFactories)
 
 	if err != nil {
-		a.logger.Info(err.Error())
-		a.logger.Info("Error while sending the message", zap.Error(err))
-		if resp != nil {
-			for k, e := range resp.FieldErrors {
-				a.logger.Info("resp field error", zap.Any(k, e))
-			}
-		}
+		a.logger.Debug("Error while writing the request", zap.Error(err))
 		return a.EventResponse(ctx, err, msg)
+	}
+
+	res, err := a.httpMessageSender.Send(req)
+	if err != nil {
+		a.logger.Debug("Error while sending the message", zap.Error(err))
+		return a.EventResponse(ctx, err, msg)
+	}
+
+	if res.StatusCode/100 != 2 {
+		a.logger.Debug("Unexpected status code", zap.Int("status code", res.StatusCode))
+		return a.EventResponse(ctx, fmt.Errorf("%d %s", res.StatusCode, http.StatusText(res.StatusCode)), msg)
 	}
 
 	reportArgs := &source.ReportArgs{
@@ -180,7 +182,7 @@ func (a *Adapter) ProcessEvent(ctx context.Context, msg *azsbus.Message) error {
 		ResourceGroup: resourceGroup,
 	}
 
-	_ = a.reporter.ReportEventCount(reportArgs, cloudevents.HTTPTransportContextFrom(rctx).StatusCode)
+	_ = a.reporter.ReportEventCount(reportArgs, res.StatusCode)
 
 	return a.EventResponse(ctx, nil, msg)
 }
