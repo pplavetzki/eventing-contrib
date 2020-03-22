@@ -33,7 +33,7 @@ type ReceiveAdapterArgs struct {
 	Image         string
 	Source        *v1alpha1.AzsbSource
 	Labels        map[string]string
-	Sink          string
+	SinkURI       string
 	MetricsConfig string
 	LoggingConfig string
 }
@@ -52,8 +52,8 @@ func MakeReceiveAdapter(args *ReceiveAdapterArgs) *v1.Deployment {
 			Value: args.Source.Spec.Subscription,
 		},
 		{
-			Name:  "SINK",
-			Value: args.Sink,
+			Name:  "SINK_URI",
+			Value: args.SinkURI,
 		},
 		{
 			Name:  "NAME",

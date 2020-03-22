@@ -30,7 +30,7 @@ func TestMakeReceiveAdapter(t *testing.T) {
 		Image:         "test-image:v1alpha1",
 		LoggingConfig: "logging-config",
 		MetricsConfig: "metrics-config",
-		Sink:          "test-sink",
+		SinkURI:       "test-sink",
 		Labels:        map[string]string{"key1": "label1"},
 		Source: &v1alpha1.AzsbSource{
 			ObjectMeta: metav1.ObjectMeta{

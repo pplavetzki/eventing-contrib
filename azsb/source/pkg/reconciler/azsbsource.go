@@ -227,7 +227,7 @@ func (r *Reconciler) createReceiveAdapter(ctx context.Context, src *v1alpha1.Azs
 		Labels:        resources.GetLabels(src.Name),
 		LoggingConfig: loggingConfig,
 		MetricsConfig: metricsConfig,
-		Sink:          sink,
+		SinkURI:       sink,
 	}
 	expected := resources.MakeReceiveAdapter(&raArgs)
 

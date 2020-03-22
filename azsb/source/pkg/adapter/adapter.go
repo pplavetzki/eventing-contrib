@@ -129,7 +129,6 @@ func (a *Adapter) ProcessEvent(ctx context.Context, msg *azsbus.Message) error {
 		}
 
 		sourceURL := sourcesv1alpha1.AzsbEventSource(a.config.Namespace, a.config.Name, a.config.Topic)
-		a.logger.Debug("here is the source url", zap.String("sourceUrl", sourceURL))
 
 		event.SetID(msg.ID)
 		event.SetTime(*msg.SystemProperties.EnqueuedTime)
@@ -153,19 +152,19 @@ func (a *Adapter) ProcessEvent(ctx context.Context, msg *azsbus.Message) error {
 
 	// Check before writing log since event.String() allocates and uses a lot of time
 	if ce := a.logger.Check(zap.DebugLevel, "debugging"); ce != nil {
-		a.logger.Debug("Sending cloud event", zap.String("event", event.String()))
+		a.logger.Info("Sending cloud event", zap.String("event", event.String()))
 	}
 
 	err = ceHTTP.WriteRequest(ctx, binding.ToMessage(&event), req, transformerFactories)
 
 	if err != nil {
-		a.logger.Debug("Error while writing the request", zap.Error(err))
+		a.logger.Info("Error while writing the request", zap.Error(err))
 		return a.EventResponse(ctx, err, msg)
 	}
 
 	res, err := a.httpMessageSender.Send(req)
 	if err != nil {
-		a.logger.Debug("Error while sending the message", zap.Error(err))
+		a.logger.Info("Error while sending the message", zap.Error(err))
 		return a.EventResponse(ctx, err, msg)
 	}
 
