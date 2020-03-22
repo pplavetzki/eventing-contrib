@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"reflect"
 
 	"go.uber.org/zap"
@@ -28,6 +27,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"knative.dev/eventing-contrib/azsb/channel/pkg/apis/messaging/v1alpha1"
 	"knative.dev/eventing-contrib/azsb/channel/pkg/dispatcher"
+	"knative.dev/eventing-contrib/azsb/channel/pkg/util"
 	"knative.dev/eventing/pkg/kncloudevents"
 	"knative.dev/eventing/pkg/logging"
 	"knative.dev/eventing/pkg/reconciler"
@@ -93,14 +93,13 @@ func NewController(
 	logger := logging.FromContext(ctx)
 	base := reconciler.NewBase(ctx, controllerAgentName, cmw)
 
+	azsbConfig := util.GetAzsbConfig()
 	connArgs := kncloudevents.ConnectionArgs{
-		MaxIdleConns:        10,
-		MaxIdleConnsPerHost: 10,
+		MaxIdleConns:        azsbConfig.MaxIdleConns,
+		MaxIdleConnsPerHost: azsbConfig.MaxIdleConnsPerHost,
 	}
 
-	// TODO: add the real connection endpoint here
-	connection := os.Getenv("SB_CONNECTION")
-	azsbDispatcher, err := dispatcher.NewDispatcher(connection, logger, &connArgs)
+	azsbDispatcher, err := dispatcher.NewDispatcher(azsbConfig.ConnectionString, logger, &connArgs)
 	if err != nil {
 		logger.Fatal("Unable to create dispatcher", zap.Error(err))
 		return nil
