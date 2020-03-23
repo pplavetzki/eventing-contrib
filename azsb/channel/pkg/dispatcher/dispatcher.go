@@ -1,3 +1,19 @@
+/*
+Copyright 2020 The Knative Authors
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package dispatcher
 
 import (
@@ -62,12 +78,16 @@ type AZServicebusDispatcher interface {
 
 // NewDispatcher returns a new AZSbDispatcher.
 func NewDispatcher(connectionEndpoint string, logger *zap.Logger, args *kncloudevents.ConnectionArgs) (AZServicebusDispatcher, error) {
+	ns, err := getNewSasInstance(connectionEndpoint)
+	if err != nil {
+		logger.Fatal("failed to get the azure service bus namespace", zap.Error(err))
+	}
 	d := &SubscriptionsSupervisor{
 		logger:             logger,
 		dispatcher:         eventingchannels.NewEventDispatcher(logger),
 		connectionEndpoint: connectionEndpoint,
 		subscriptions:      make(SubscriptionChannelMapping),
-		azNamespace:        getNewSasInstance(connectionEndpoint),
+		azNamespace:        ns,
 	}
 	httpTransport, err := cloudeventstransport.New(cloudeventstransport.WithStructuredEncoding(), cloudeventstransport.WithMiddleware(tracing.HTTPSpanIgnoringPaths(tracingSpanIgnoringPath)))
 	if err != nil {
@@ -188,9 +208,9 @@ func (s *SubscriptionsSupervisor) subscribe(ctx context.Context, channel eventin
 		return func(eventCtx context.Context, msg *bus.Message) error {
 			event := cloudevents.Event{}
 			err := event.UnmarshalJSON(msg.Data)
-			s.logger.Sugar().Infof("received full message: %v, payload:", msg, string(msg.Data))
-			s.logger.Sugar().Infof("Azure Service Bus message received from label: %v; id: %v; timestamp: %v'", msg.Label, msg.ID, msg.ScheduleAt)
-			s.logger.Sugar().Infof("Azure Service Bus message subscription info Topic URL: %s, Reply URL: %s.", subscription.TopicURL, subscription.TopicURL)
+			s.logger.Sugar().Debugf("received full message: %v, payload:", msg, string(msg.Data))
+			s.logger.Sugar().Debugf("Azure Service Bus message received from label: %v; id: %v; timestamp: %v'", msg.Label, msg.ID, msg.ScheduleAt)
+			s.logger.Sugar().Debugf("Azure Service Bus message subscription info Topic URL: %s, Reply URL: %s.", subscription.TopicURL, subscription.TopicURL)
 			if err != nil {
 				s.logger.Error(err.Error(), zap.Error(err))
 				return err
@@ -209,10 +229,11 @@ func (s *SubscriptionsSupervisor) subscribe(ctx context.Context, channel eventin
 			return nil
 		}
 	}
-	s.logger.Info("created the message handler successfully")
 	subName := subscription.String()
-	s.logger.Info("here is the subcription name to create:", zap.Any("subscriptionName", subName))
-
+	s.logger.Debug("here is the subcription name to create:", zap.Any("subscriptionName", subName))
+	if !s.isValidNamespace() {
+		return nil, fmt.Errorf("invalid namespace for connecting to Azure Service Bus")
+	}
 	t, err := s.azNamespace.NewTopic(channel.Name)
 	if err != nil {
 		s.logger.Error("Getting the Topic from Azure Service Bus failed: ", zap.Error(err))
@@ -224,13 +245,13 @@ func (s *SubscriptionsSupervisor) subscribe(ctx context.Context, channel eventin
 	_, err = sm.Get(ctx, subName)
 
 	if err != nil && strings.ContainsAny(err.Error(), "not found") {
-		s.logger.Sugar().Infof("did not find the subscription, so we're going to try and create it", subName)
+		s.logger.Sugar().Debug("did not find the subscription, so we're going to try and create it", subName)
 		_, err = sm.Put(ctx, subName)
 		if err != nil {
 			s.logger.Error("Creating the subscription from Azure Service Bus failed: ", zap.Error(err))
 			return nil, err
 		}
-		s.logger.Sugar().Infof("successfully created the subscription", subName)
+		s.logger.Sugar().Debug("successfully created the subscription", subName)
 		// Try again to get the newly created subscription
 		sub, err = t.NewSubscription(subName)
 		if err != nil {
@@ -377,10 +398,18 @@ func (s *SubscriptionsSupervisor) getChannelReferenceFromHost(host string) (even
 	}
 	return cr, nil
 }
-func getNewSasInstance(connection string, opts ...bus.NamespaceOption) *bus.Namespace {
-	ns, err := bus.NewNamespace(append(opts, bus.NamespaceWithConnectionString(connection))...)
-	if err != nil {
-		log.Fatal(err)
+
+func (s *SubscriptionsSupervisor) isValidNamespace() bool {
+	if s.azNamespace.Environment.ServiceBusEndpoint == "" {
+		return false
 	}
-	return ns
+	if s.azNamespace.TokenProvider == nil {
+		return false
+	}
+
+	return true
+}
+
+func getNewSasInstance(connection string, opts ...bus.NamespaceOption) (*bus.Namespace, error) {
+	return bus.NewNamespace(append(opts, bus.NamespaceWithConnectionString(connection))...)
 }
