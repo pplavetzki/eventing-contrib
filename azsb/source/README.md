@@ -8,8 +8,8 @@ kind: AzsbSource
 metadata:
   name: azsb-source
 spec:
-  subscription: knative-subscription
-  topic: knative-demo-topic
+  subscription: 4fab069b-8707-4892-9dc4-475f28d97af6
+  topic: azsb-knative-kne-trigger
   connectionString:
     secretKeyRef:
       name: sb-connection

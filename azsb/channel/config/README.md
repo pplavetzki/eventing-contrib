@@ -28,7 +28,7 @@ Azure Service Bus channels are beta-quality Channels that are backed by
 apiVersion: eventing.knative.dev/v1alpha1
 kind: Broker
 metadata:
-  name: azsb
+  name: azsb-knative
 spec:
   channelTemplateSpec:
     apiVersion: messaging.knative.dev/v1alpha1
