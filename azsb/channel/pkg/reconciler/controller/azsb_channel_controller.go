@@ -34,8 +34,8 @@ import (
 
 	"knative.dev/eventing-contrib/azsb/channel/pkg/client/injection/informers/messaging/v1alpha1/azservicebuschannel"
 	listers "knative.dev/eventing-contrib/azsb/channel/pkg/client/listers/messaging/v1alpha1"
-	"knative.dev/eventing-contrib/azsb/channel/pkg/reconciler"
 	"knative.dev/eventing-contrib/azsb/channel/pkg/reconciler/controller/resources"
+	"knative.dev/eventing/pkg/reconciler"
 
 	"go.uber.org/zap"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -272,8 +272,8 @@ func (r *Reconciler) reconcile(ctx context.Context, azc *v1alpha1.AZServicebusCh
 			}
 		}
 		removeFinalizer(azc)
-		_, err := r.azServicebusClientSet.MessagingV1alpha1().AZServicebusChannels(azc.Namespace).Update(azc)
-		return err
+		// _, err := r.azServicebusClientSet.MessagingV1alpha1().AZServicebusChannels(azc.Namespace).Update(azc)
+		return nil
 	}
 
 	// If we are adding the finalizer for the first time, then ensure that finalizer is persisted
@@ -506,7 +506,9 @@ func (r *Reconciler) reconcileChannelService(ctx context.Context, channel *v1alp
 	}
 	// Check to make sure that the AZServicebusChannel owns this service and if not, complain.
 	if !metav1.IsControlledBy(svc, channel) {
-		return nil, fmt.Errorf("azservicebuschannel: %s/%s does not own Service: %q", channel.Namespace, channel.Name, svc.Name)
+		err := fmt.Errorf("AZServicebusChannel: %s/%s does not own Service: %q", channel.Namespace, channel.Name, svc.Name)
+		logger.Infof("AZServicebusChannel: %s/%s does not own Service: %q", channel.Namespace, channel.Name, svc.Name)
+		return nil, err
 	}
 	return svc, nil
 }
