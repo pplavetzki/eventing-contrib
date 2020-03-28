@@ -19,6 +19,7 @@ var (
 
 // DispatcherArgs args
 type DispatcherArgs struct {
+	DispatcherScope     string
 	DispatcherNamespace string
 	Image               string
 }
