@@ -52,7 +52,7 @@ func MakeDispatcher(args DispatcherArgs) *v1.Deployment {
 						{
 							Name:  "dispatcher",
 							Image: args.Image,
-							Env:   makeEnv(),
+							Env:   makeEnv(args),
 							Ports: []corev1.ContainerPort{{
 								Name:          "metrics",
 								ContainerPort: 9090,
@@ -83,8 +83,8 @@ func MakeDispatcher(args DispatcherArgs) *v1.Deployment {
 	}
 }
 
-func makeEnv() []corev1.EnvVar {
-	return []corev1.EnvVar{{
+func makeEnv(args DispatcherArgs) []corev1.EnvVar {
+	vars := []corev1.EnvVar{{
 		Name:  system.NamespaceEnvKey,
 		Value: system.Namespace(),
 	}, {
@@ -97,4 +97,17 @@ func makeEnv() []corev1.EnvVar {
 		Name:  "CONFIG_LEADERELECTION_NAME",
 		Value: "config-leader-election-azsb",
 	}}
+
+	if args.DispatcherScope == "namespace" {
+		vars = append(vars, corev1.EnvVar{
+			Name: "NAMESPACE",
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{
+					FieldPath: "metadata.namespace",
+				},
+			},
+		})
+	}
+
+	return vars
 }
