@@ -45,10 +45,27 @@ spec:
             enablePartitions:
               type: boolean
               description: "Enabled partitions of a Azure Service Bus topic."
+            enableDuplicateDetection:
+              type: boolean
+              description: "Enable duplicate detection for the topic"
+            duplicateDetectionWindow:
+              format: int64
+              type: integer
+              description: "If enableDuplicateDetection is enabled time in seconds"
+              minimum: 20
+              maximum: 614880
+            messageTTL:
+              format: int64
+              type: integer
+              description: "Time to live for messages in the topic in seconds"
+              minimum: 5
+              maximum: 15552000
             maxTopicSize:
               format: int16
               type: integer
-              description: "Maximum size of a Azure Service Bus topic."
+              description: "Maximum size of a Azure Service Bus topic in MegaBytes"
+              minimum: 1024
+              maximum: 5120
             subscribable:
               type: object
               properties:

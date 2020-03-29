@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"reflect"
 	"strings"
 	"sync"
@@ -530,9 +531,9 @@ func (r *Reconciler) createTopic(ctx context.Context, channel *v1alpha1.AZServic
 	r.topicMux.Lock()
 	defer r.topicMux.Unlock()
 	logger := logging.FromContext(ctx)
-	// topicName := utils.TopicName(utils.separator, channel.Namespace, channel.Name)
 	topicName := channel.Name
-	logger.Info("Creating topic on AZ Service Bus cluster", zap.String("topic", topicName))
+
+	logger.Debug("Creating topic on AZ Service Bus cluster", zap.String("topic", topicName))
 	tm := azServicebusManager.NewTopicManager()
 
 	te, err := tm.Get(ctx, topicName)
@@ -542,7 +543,40 @@ func (r *Reconciler) createTopic(ctx context.Context, channel *v1alpha1.AZServic
 	} else if te != nil {
 		logger.Warn("Topic already exists created topic", zap.String("topic", topicName))
 	} else {
-		_, err := tm.Put(ctx, topicName)
+		opts := make([]azsbus.TopicManagementOption, 1)
+		maxSizeDefault := 1024
+		maxSize := 5120
+		if channel.Spec.MaxTopicSize == 0 || int(channel.Spec.MaxTopicSize) > maxSize {
+			opts[0] = azsbus.TopicManagementOption(azsbus.TopicWithMaxSizeInMegabytes(maxSizeDefault))
+		} else {
+			topicSizeGB := math.Floor(float64(int(channel.Spec.MaxTopicSize) / maxSizeDefault))
+			topicSizeMB := int(topicSizeGB) * maxSizeDefault
+			opts[0] = azsbus.TopicManagementOption(azsbus.TopicWithMaxSizeInMegabytes(topicSizeMB))
+		}
+		opts[0] = azsbus.TopicManagementOption(azsbus.TopicWithMaxSizeInMegabytes(int(channel.Spec.MaxTopicSize)))
+
+		if channel.Spec.EnablePartition {
+			opts = append(opts, azsbus.TopicManagementOption(azsbus.TopicWithPartitioning()))
+		}
+		if channel.Spec.EnableDuplicateDetection {
+			mttl := 30 * time.Second
+			maxttl := int64(614880) // 7 days
+			if channel.Spec.DuplicateDetectionWindow == 0 || channel.Spec.DuplicateDetectionWindow < 20 || channel.Spec.DuplicateDetectionWindow > maxttl {
+				opts = append(opts, azsbus.TopicWithDuplicateDetection(&mttl))
+			} else {
+				mttl = time.Duration(channel.Spec.DuplicateDetectionWindow) * time.Second
+				opts = append(opts, azsbus.TopicWithDuplicateDetection(&mttl))
+			}
+		}
+		mttlMax := int64(15552000) // 180 days even though you can have a max message of
+		if channel.Spec.MessageTTL == 0 || channel.Spec.MessageTTL < 5 || channel.Spec.MessageTTL > mttlMax {
+			mttl := (14 * 24) * time.Hour
+			opts = append(opts, azsbus.TopicWithMessageTimeToLive(&mttl))
+		} else {
+			mttl := time.Duration(channel.Spec.MessageTTL) * time.Second
+			opts = append(opts, azsbus.TopicWithMessageTimeToLive(&mttl))
+		}
+		_, err := tm.Put(ctx, topicName, opts...)
 		if err != nil {
 			logger.Error("Error creating topic", zap.String("topic", topicName), zap.Error(err))
 		} else {

@@ -52,10 +52,19 @@ var _ runtime.Object = (*AZServicebusChannel)(nil)
 // AZServicebusChannelSpec defines the specification for a AZServicebusChannel.
 type AZServicebusChannelSpec struct {
 	// EnablePartition enables partitioning.
-	EnablePartition bool `json:"enablePartition"`
+	EnablePartition bool `json:"enablePartition,omitempty"`
+
+	// EnableDuplicateDetection topic will detect duplicates
+	EnableDuplicateDetection bool `json:"enableDuplicateDetection,omitempty"`
+
+	// DuplicateDetectionWindow period of time to decern if its a dup
+	DuplicateDetectionWindow int64 `json:"duplicationDetectionWindow,omitempty"`
+
+	//MessageTTL Message Time-to-live
+	MessageTTL int64 `json:"messageTTL,omitempty"`
 
 	// MaxTopicSize size of the Topic.
-	MaxTopicSize int16 `json:"maxTopicSize"`
+	MaxTopicSize int16 `json:"maxTopicSize,omitempty"`
 
 	// AZServicebusChannel conforms to Duck type Subscribable.
 	Subscribable *eventingduck.Subscribable `json:"subscribable,omitempty"`
